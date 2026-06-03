@@ -194,7 +194,7 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // Game dimensions
-  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0); // Z is the long dimension [cite: 33, 35]
+  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0); // Z is the long dimension
   final double safeIncubationRadius = 25.0;
 
   // Game state
@@ -212,12 +212,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   // Camera Coordinate Tracing (Spherical coordinates)
   double cameraRadius = 400.0;
-  double cameraTheta = 0.78; // Azimuthal rotation angle [cite: 42]
-  double cameraPhi = 1.2;    // Polar angle [cite: 42]
+  double cameraTheta = 0.78; // Azimuthal rotation angle
+  double cameraPhi = 1.2;    // Polar angle
   
   // Anti-Cheat Autonomous Rotational Drift
-  double autoRotateSpeedTheta = 0.15; [cite: 46]
-  double autoRotateSpeedPhi = 0.08;    [cite: 46]
+  double autoRotateSpeedTheta = 0.15;
+  double autoRotateSpeedPhi = 0.08;
   bool isUserInteractingWithBox = false;
 
   // Multi-Touch Input Mapping tracker
@@ -244,7 +244,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadHighScores() async {
-    final prefs = await SharedPreferences.getInstance(); [cite: 19]
+    final prefs = await SharedPreferences.getInstance();
     setState(() {
       highScores = prefs.getStringList('highScores3D')?.map(int.parse).toList() ?? [];
       highScores.sort((a, b) => b.compareTo(a));
@@ -252,7 +252,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _saveHighScore(int score) async {
-    final prefs = await SharedPreferences.getInstance(); [cite: 19]
+    final prefs = await SharedPreferences.getInstance();
     highScores.add(score);
     highScores.sort((a, b) => b.compareTo(a));
     if (highScores.length > 5) highScores = highScores.sublist(0, 5);
@@ -277,7 +277,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (!isPlaying) return;
       setState(() {
         elapsedMilliseconds = DateTime.now().difference(gameStartTime!).inMilliseconds;
-        currentScore = elapsedMilliseconds ~/ 100; [cite: 14]
+        currentScore = elapsedMilliseconds ~/ 100;
       });
     });
 
@@ -300,7 +300,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _spawnParticle() {
-    // All paths initialize at mathematical absolute center (0,0,0) [cite: 22]
+    // All paths initialize at mathematical absolute center (0,0,0)
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
@@ -308,8 +308,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         (math.Random().nextDouble() * 2 - 1) * 8,
         (math.Random().nextDouble() * 2 - 1) * 12,
       ),
-      state: ParticleState.incubating, [cite: 23]
-      color: const Color(0xFF00FF00), [cite: 24]
+      state: ParticleState.incubating,
+      color: const Color(0xFF00FF00),
     );
     particles.add(p);
   }
@@ -322,15 +322,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     double dt = 0.016; // Stable DeltaTime baseline (~60FPS)
 
-    // Apply continuous camera auto-drift anti-cheat if no active interaction is ongoing [cite: 46]
+    // Apply continuous camera auto-drift anti-cheat if no active interaction is ongoing
     if (!isUserInteractingWithBox) {
       setState(() {
-        cameraTheta += autoRotateSpeedTheta * dt; [cite: 46]
-        cameraPhi = (cameraPhi + autoRotateSpeedPhi * dt).clamp(0.2, math.PI - 0.2); [cite: 46]
+        cameraTheta += autoRotateSpeedTheta * dt;
+        cameraPhi = (cameraPhi + autoRotateSpeedPhi * dt).clamp(0.2, math.PI - 0.2);
       });
     }
 
-    // Initialize Native Dart Spatial Partitioning Tree 
+    // Initialize Native Dart Spatial Partitioning Tree
     final halfX = boxDimensions.x / 2;
     final halfY = boxDimensions.y / 2;
     final halfZ = boxDimensions.z / 2;
@@ -351,29 +351,29 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         // State Machine Transition evaluations
         if (p.state == ParticleState.incubating) {
           if (distanceToCenter > safeIncubationRadius) {
-            p.state = ParticleState.active; [cite: 25]
+            p.state = ParticleState.active;
           } else {
-            // Incubation safe zone slow drift [cite: 23]
+            // Incubation safe zone slow drift
             p.position += p.velocity * dt * 0.4;
           }
         }
 
         if (p.state == ParticleState.active) {
-          // Centrifugal acceleration logic [cite: 25]
+          // Centrifugal acceleration logic
           vm.Vector3 accelerationDirection = p.velocity.normalized();
-          p.velocity += accelerationDirection * (distanceToCenter * 0.09) * dt; [cite: 25]
+          p.velocity += accelerationDirection * (distanceToCenter * 0.09) * dt;
           p.position += p.velocity * dt;
 
-          // Color Space interpolation logic via depth/threat mappings [cite: 53]
+          // Color Space interpolation logic via depth/threat mappings
           double threatFactor = (p.position.xy.length / halfX).clamp(0.0, 1.0);
           if (threatFactor < 0.5) {
-            p.color = Color.lerp(const Color(0xFF00FF00), const Color(0xFFFFA500), threatFactor * 2)!; [cite: 53]
+            p.color = Color.lerp(const Color(0xFF00FF00), const Color(0xFFFFA500), threatFactor * 2)!;
           } else {
-            p.color = Color.lerp(const Color(0xFFFFA500), const Color(0xFFFF0000), (threatFactor - 0.5) * 2)!; [cite: 53]
+            p.color = Color.lerp(const Color(0xFFFFA500), const Color(0xFFFF0000), (threatFactor - 0.5) * 2)!;
           }
         }
 
-        // Apply spatial gravity calculations using Octree partitions 
+        // Apply spatial gravity calculations using Octree partitions
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
@@ -387,15 +387,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
-        // Border Rules & Topology Assertions [cite: 32]
-        // Non-Lethal square Z-ends configuration wrap-around [cite: 35]
+        // Border Rules & Topology Assertions
+        // Non-Lethal square Z-ends configuration wrap-around
         if (p.position.z.abs() > halfZ) {
-          p.position.z = -p.position.z; // Teleport cleanly to inverse coordinate pole [cite: 36]
+          p.position.z = -p.position.z; // Teleport cleanly to inverse coordinate pole
         }
 
-        // Lethal continuous long wall checks [cite: 33, 34]
+        // Lethal continuous long wall checks
         if (p.position.x.abs() >= halfX || p.position.y.abs() >= halfY) {
-          _triggerGameOver(); [cite: 16]
+          _triggerGameOver();
           break;
         }
       }
@@ -412,14 +412,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return vm.Vector3(x, y, z);
   }
 
-  /// Natively projects screen points into 3D Space Coordinates [cite: 69]
+  /// Natively projects screen points into 3D Space Coordinates
   Ray _castScreenRay(Offset touchPoint, Size widgetBounds) {
     vm.Vector3 camPos = _computeCameraPosition();
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0); [cite: 28]
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
     vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix..multiply(viewMatrix))..invert();
 
     // Normalized Device Coordinates calculation profiles
@@ -441,7 +441,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Ray(rayOrigin, rayDirection);
   }
 
-  /// Resolves the raw raycast interception against box faces [cite: 69]
+  /// Resolves the raw raycast interception against box faces
   vm.Vector3? _findRayIntersectionWithBox(Ray ray) {
     double halfX = boxDimensions.x / 2;
     double halfY = boxDimensions.y / 2;
@@ -481,23 +481,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
     activeTouches[pointerId] = localPosition;
 
-    // Evaluate screen positioning boundaries (80/20 UI Separation rule) [cite: 41]
+    // Evaluate screen positioning boundaries (80/20 UI Separation rule)
     double marginX = screenSize.width * 0.15;
     double marginY = screenSize.height * 0.15;
     bool insideOutskirtsZone = localPosition.dx < marginX || 
                                localPosition.dx > screenSize.width - marginX ||
                                localPosition.dy < marginY || 
-                               localPosition.dy > screenSize.height - marginY; [cite: 42]
+                               localPosition.dy > screenSize.height - marginY;
 
     if (insideOutskirtsZone && cameraTrackingPointerId == null) {
-      // Establish continuous drag lock configuration on the camera system [cite: 44]
+      // Establish continuous drag lock configuration on the camera system
       cameraTrackingPointerId = pointerId;
     } else if (!insideOutskirtsZone) {
-      // Route input processing directly into tactical impulse zone [cite: 43]
-      isUserInteractingWithBox = true; [cite: 47]
+      // Route input processing directly into tactical impulse zone
+      isUserInteractingWithBox = true;
 
       if (activeTouches.length >= 2) {
-        _processMultiTouchIntersection(screenSize); [cite: 64]
+        _processMultiTouchIntersection(screenSize);
       }
     }
   }
@@ -508,11 +508,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     activeTouches[pointerId] = localPosition;
 
     if (pointerId == cameraTrackingPointerId) {
-      // Update camera spherical parameters dynamically via pan updates [cite: 42, 45]
+      // Update camera spherical parameters dynamically via pan updates
       Offset delta = localPosition - previousPosition;
       setState(() {
-        cameraTheta -= delta.dx * 0.007; [cite: 42]
-        cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.PI - 0.2); [cite: 42]
+        cameraTheta -= delta.dx * 0.007;
+        cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.PI - 0.2);
       });
     }
   }
@@ -521,25 +521,25 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (pointerId == cameraTrackingPointerId) {
       cameraTrackingPointerId = null;
     } else if (isUserInteractingWithBox && activeTouches.length == 1) {
-      // Evaluate a Single-Touch Depth Ray release execution [cite: 60, 63]
+      // Evaluate a Single-Touch Depth Ray release execution
       Offset releasePoint = activeTouches[pointerId]!;
-      _processSingleTouchDepthRay(releasePoint, screenSize); [cite: 60]
+      _processSingleTouchDepthRay(releasePoint, screenSize);
     }
 
     activeTouches.remove(pointerId);
     if (activeTouches.isEmpty) {
-      isUserInteractingWithBox = false; // Smoothly release autonomous rotation inhibitors [cite: 48]
+      isUserInteractingWithBox = false; // Smoothly release autonomous rotation inhibitors
     }
   }
 
   void _processSingleTouchDepthRay(Offset screenPoint, Size bounds) {
-    Ray ray = _castScreenRay(screenPoint, bounds); [cite: 69]
-    vm.Vector3? intersect = _findRayIntersectionWithBox(ray); [cite: 69]
+    Ray ray = _castScreenRay(screenPoint, bounds);
+    vm.Vector3? intersect = _findRayIntersectionWithBox(ray);
 
     if (intersect != null) {
       setState(() {
-        // Drop standard gravity impulse straight down the face normal axis [cite: 62, 63]
-        activeImpulses.add(GravityImpulse(position: intersect * 0.65)); [cite: 63]
+        // Drop standard gravity impulse straight down the face normal axis
+        activeImpulses.add(GravityImpulse(position: intersect * 0.65));
       });
     }
   }
@@ -548,20 +548,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (activeTouches.length < 2) return;
     var keys = activeTouches.keys.toList();
     
-    Ray ray1 = _castScreenRay(activeTouches[keys[0]]!, bounds); [cite: 69]
-    Ray ray2 = _castScreenRay(activeTouches[keys[1]]!, bounds); [cite: 69]
+    Ray ray1 = _castScreenRay(activeTouches[keys[0]]!, bounds);
+    Ray ray2 = _castScreenRay(activeTouches[keys[1]]!, bounds);
 
-    vm.Vector3? p1 = _findRayIntersectionWithBox(ray1); [cite: 69]
-    vm.Vector3? p2 = _findRayIntersectionWithBox(ray2); [cite: 69]
+    vm.Vector3? p1 = _findRayIntersectionWithBox(ray1);
+    vm.Vector3? p2 = _findRayIntersectionWithBox(ray2);
 
     if (p1 != null && p2 != null) {
-      // Calculate closest approach point between two lines in space [cite: 67]
+      // Calculate closest approach point between two lines in space
       vm.Vector3 lineVec = p2 - p1;
       double midpointFactor = lineVec.length * 0.5;
-      vm.Vector3 midPointIntersection = p1 + (lineVec.normalized() * midpointFactor); [cite: 67]
+      vm.Vector3 midPointIntersection = p1 + (lineVec.normalized() * midpointFactor);
 
       setState(() {
-        activeImpulses.add(GravityImpulse(position: midPointIntersection)); [cite: 67]
+        activeImpulses.add(GravityImpulse(position: midPointIntersection));
       });
     }
   }
@@ -595,12 +595,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ),
 
-          // Core HUD Minimalist Text Overlay [cite: 18]
+          // Core HUD Minimalist Text Overlay
           Positioned(
             top: 40.0,
             left: 20.0,
             child: Text(
-              'SCORE: $currentScore', [cite: 18]
+              'SCORE: $currentScore',
               style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -689,12 +689,12 @@ class Scene3DPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Standard perspective rendering transformations [cite: 28]
+    // Standard perspective rendering transformations
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), size.width / size.height, 10.0, 1000.0); [cite: 28]
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), size.width / size.height, 10.0, 1000.0);
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
@@ -732,40 +732,40 @@ class Scene3DPainter extends CustomPainter {
     List<List<int>> edges = [
       [0, 1], [1, 2], [2, 3], [3, 0], // Back Face
       [4, 5], [5, 6], [6, 7], [7, 4], // Front Face
-      [0, 4], [1, 5], [2, 6], [3, 7], // Connecting Long Lethal Borders [cite: 33]
+      [0, 4], [1, 5], [2, 6], [3, 7], // Connecting Long Lethal Borders
     ];
 
     final Paint edgePaint = Paint()
       ..style = PaintingStyle.stroke
       ..antiAlias = true;
 
-    // Render depth-weighted structural lines [cite: 29]
+    // Render depth-weighted structural lines
     for (var edge in edges) {
       Offset? p1 = projected[edge[0]];
       Offset? p2 = projected[edge[1]];
 
       if (p1 != null && p2 != null) {
-        // Depth scale assessment based on point distance averages [cite: 29]
+        // Depth scale assessment based on point distance averages
         double averageDepth = (vertices[edge[0]].z + vertices[edge[1]].z) / (hZ * 2) + 0.5;
         
-        edgePaint.color = Colors.cyan.withOpacity(math.max(0.15, 1.0 - averageDepth)); [cite: 29]
-        edgePaint.strokeWidth = math.max(1.0, 3.5 * (1.0 - averageDepth)); [cite: 29]
+        edgePaint.color = Colors.cyan.withOpacity(math.max(0.15, 1.0 - averageDepth));
+        edgePaint.strokeWidth = math.max(1.0, 3.5 * (1.0 - averageDepth));
 
         canvas.drawLine(p1, p2, edgePaint);
       }
     }
 
-    // Interior Sub-Grids & Fresnel Visual Effects simulation [cite: 30, 31]
+    // Interior Sub-Grids & Fresnel Visual Effects simulation
     _drawInteriorSubGrids(canvas, size, vpMatrix, hX, hY, hZ);
   }
 
   void _drawInteriorSubGrids(Canvas canvas, Size size, vm.Matrix4 vpMatrix, double hX, double hY, double hZ) {
     final gridPaint = Paint()
-      ..color = Colors.cyan.withOpacity(0.06) [cite: 30]
+      ..color = Colors.cyan.withOpacity(0.06)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
 
-    // Draw lines along long walls faces [cite: 30]
+    // Draw lines along long walls faces
     for (double i = -hZ + 50; i < hZ; i += 50) {
       List<vm.Vector3> ring = [
         vm.Vector3(-hX, -hY, i), vm.Vector3(hX, -hY, i),
@@ -781,40 +781,40 @@ class Scene3DPainter extends CustomPainter {
   }
 
   void _drawParticles(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
-    // Render setup for additive color blending simulation [cite: 56]
-    final Paint pPaint = Paint()..extendedBlendMode = BlendMode.plus; [cite: 56]
+    // Render setup for additive color blending simulation
+    final Paint pPaint = Paint()..extendedBlendMode = BlendMode.plus;
 
     for (var p in particles) {
       Offset? screenPos = _projectPoint(p.position, size, vpMatrix);
       if (screenPos == null) continue;
 
-      // Distance depth evaluation scaling profiles [cite: 54, 55]
+      // Distance depth evaluation scaling profiles
       double distanceToCam = (cameraPosition - p.position).length;
-      double scale = (450.0 / distanceToCam).clamp(0.3, 3.0); [cite: 54]
+      double scale = (450.0 / distanceToCam).clamp(0.3, 3.0);
 
-      // Target core scaling properties [cite: 54]
-      double baseRadius = p.state == ParticleState.incubating ? p.radius * 0.7 : p.radius; [cite: 24]
+      // Target core scaling properties
+      double baseRadius = p.state == ParticleState.incubating ? p.radius * 0.7 : p.radius;
       double finalRadius = baseRadius * scale;
 
-      pPaint.color = p.color.withOpacity((0.9 * (scale / 3.0)).clamp(0.2, 1.0)); [cite: 54, 55]
+      pPaint.color = p.color.withOpacity((0.9 * (scale / 3.0)).clamp(0.2, 1.0));
 
-      // Draw primary light point element [cite: 5]
+      // Draw primary light point element
       canvas.drawCircle(screenPos, finalRadius, pPaint);
 
-      // Add a secondary bloom pass to support bleed lighting values when overlapping 
+      // Add a secondary bloom pass to support bleed lighting values when overlapping
       pPaint.color = p.color.withOpacity(0.25);
       canvas.drawCircle(screenPos, finalRadius * 2.2, pPaint);
 
-      // Map a non-lethal ghosting placeholder reflection across square boundaries [cite: 37]
+      // Map a non-lethal ghosting placeholder reflection across square boundaries
       double halfZ = boxDimensions.z / 2;
       if (p.position.z.abs() > halfZ * 0.75) {
-        vm.Vector3 ghostPosition = vm.Vector3(p.position.x, p.position.y, -p.position.z); [cite: 37]
+        vm.Vector3 ghostPosition = vm.Vector3(p.position.x, p.position.y, -p.position.z);
         Offset? ghostScreenPos = _projectPoint(ghostPosition, size, vpMatrix);
         if (ghostScreenPos != null) {
           final Paint ghostPaint = Paint()
-            ..color = p.color.withOpacity(0.08) [cite: 37]
+            ..color = p.color.withOpacity(0.08)
             ..extendedBlendMode = BlendMode.plus;
-          canvas.drawCircle(ghostScreenPos, finalRadius * 0.8, ghostPaint); [cite: 37]
+          canvas.drawCircle(ghostScreenPos, finalRadius * 0.8, ghostPaint);
         }
       }
     }
