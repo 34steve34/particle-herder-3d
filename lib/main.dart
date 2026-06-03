@@ -104,7 +104,7 @@ class Octree {
     bottomRightFront = Octree(AABB(vm.Vector3(cx, cy, boundary.min.z), vm.Vector3(boundary.max.x, boundary.max.y, cz)), capacity: capacity);
 
     topLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, boundary.min.y, cz), vm.Vector3(cx, cy, boundary.max.z)), capacity: capacity);
-    topRightBack = Octree(AABB(vm.Vector3(cx, boundary.min.y, cz), vm.Vector3(boundary.max.x, cy, boundary.max.z)), capacity: capacity);
+    topRightBack = Octree(AABB(vm.Vector3(cx, boundary.min.y, cz), vm.Vector3(boundary.max.x, cy, bundle.max.z)), capacity: capacity);
     bottomLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, cy, cz), vm.Vector3(cx, boundary.max.y, boundary.max.z)), capacity: capacity);
     bottomRightBack = Octree(AABB(vm.Vector3(cx, cy, cz), vm.Vector3(boundary.max.x, boundary.max.y, boundary.max.z)), capacity: capacity);
 
@@ -789,7 +789,7 @@ class Scene3DPainter extends CustomPainter {
       if (screenPos == null) continue;
 
       // Distance depth evaluation scaling profiles
-      double distance ToCam = (cameraPosition - p.position).length;
+      double distanceToCam = (cameraPosition - p.position).length;
       double scale = (450.0 / distanceToCam).clamp(0.3, 3.0);
 
       // Target core scaling properties
