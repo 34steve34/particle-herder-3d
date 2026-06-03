@@ -1,0 +1,40 @@
+name: Deploy Flutter Web to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Runs every time you commit to the main branch
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out your code from the repo
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Install the Flutter framework
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # 3. Get dependencies
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 4. Compile Dart into an optimized, web-ready PWA framework
+      # UPDATE THE BASE-HREF BELOW TO MATCH YOUR EXACT GITHUB REPOSITORY NAME
+      - name: Build Web App
+        run: flutter build web --release --base-href /particle-herder-3d/
+
+      # 5. Push the compiled asset bundle directly to the 'gh-pages' hosting branch
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
