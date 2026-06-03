@@ -195,7 +195,7 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // Game dimensions
   final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0); // Z is the long dimension [cite: 33, 35]
-  final double safeIncubationRadius = 25.0; [cite: 23]
+  final double safeIncubationRadius = 25.0;
 
   // Game state
   bool isPlaying = false;
