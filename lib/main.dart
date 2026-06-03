@@ -782,14 +782,14 @@ class Scene3DPainter extends CustomPainter {
 
   void _drawParticles(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     // Render setup for additive color blending simulation
-    final Paint pPaint = Paint()..extendedBlendMode = BlendMode.plus;
+    final Paint pPaint = Paint()..blendMode = BlendMode.plus;
 
     for (var p in particles) {
       Offset? screenPos = _projectPoint(p.position, size, vpMatrix);
       if (screenPos == null) continue;
 
       // Distance depth evaluation scaling profiles
-      double distanceToCam = (cameraPosition - p.position).length;
+      double distance ToCam = (cameraPosition - p.position).length;
       double scale = (450.0 / distanceToCam).clamp(0.3, 3.0);
 
       // Target core scaling properties
@@ -813,7 +813,7 @@ class Scene3DPainter extends CustomPainter {
         if (ghostScreenPos != null) {
           final Paint ghostPaint = Paint()
             ..color = p.color.withOpacity(0.08)
-            ..extendedBlendMode = BlendMode.plus;
+            ..blendMode = BlendMode.plus;
           canvas.drawCircle(ghostScreenPos, finalRadius * 0.8, ghostPaint);
         }
       }
