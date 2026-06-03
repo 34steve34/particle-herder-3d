@@ -326,7 +326,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
-        cameraPhi = (cameraPhi + autoRotateSpeedPhi * dt).clamp(0.2, math.PI - 0.2);
+        cameraPhi = (cameraPhi + autoRotateSpeedPhi * dt).clamp(0.2, math.pi - 0.2);
       });
     }
 
@@ -512,7 +512,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       Offset delta = localPosition - previousPosition;
       setState(() {
         cameraTheta -= delta.dx * 0.007;
-        cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.PI - 0.2);
+        cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
     }
   }
@@ -627,7 +627,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             children: [
               const Text(
                 'PARTICLE HERDER 3D',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.black, letterSpacing: 3, color: Colors.green),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 3, color: Colors.green),
               ),
               const SizedBox(height: 15),
               Padding(
@@ -737,7 +737,7 @@ class Scene3DPainter extends CustomPainter {
 
     final Paint edgePaint = Paint()
       ..style = PaintingStyle.stroke
-      ..antiAlias = true;
+      ..isAntiAlias = true;
 
     // Render depth-weighted structural lines
     for (var edge in edges) {
