@@ -104,7 +104,8 @@ class Octree {
     bottomRightFront = Octree(AABB(vm.Vector3(cx, cy, boundary.min.z), vm.Vector3(boundary.max.x, boundary.max.y, cz)), capacity: capacity);
 
     topLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, boundary.min.y, cz), vm.Vector3(cx, cy, boundary.max.z)), capacity: capacity);
-    topRightBack = Octree(AABB(vm.Vector3(cx, boundary.min.y, cz), vm.Vector3(boundary.max.x, cy, bundle.max.z)), capacity: capacity);
+    // FIX APPLIED HERE: Changed 'bundle.max.z' to 'boundary.max.z'
+    topRightBack = Octree(AABB(vm.Vector3(cx, boundary.min.y, cz), vm.Vector3(boundary.max.x, cy, boundary.max.z)), capacity: capacity);
     bottomLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, cy, cz), vm.Vector3(cx, boundary.max.y, boundary.max.z)), capacity: capacity);
     bottomRightBack = Octree(AABB(vm.Vector3(cx, cy, cz), vm.Vector3(boundary.max.x, boundary.max.y, boundary.max.z)), capacity: capacity);
 
