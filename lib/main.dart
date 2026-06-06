@@ -104,7 +104,6 @@ class Octree {
     bottomRightFront = Octree(AABB(vm.Vector3(cx, cy, boundary.min.z), vm.Vector3(boundary.max.x, boundary.max.y, cz)), capacity: capacity);
 
     topLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, boundary.min.y, cz), vm.Vector3(cx, cy, boundary.max.z)), capacity: capacity);
-    // FIX APPLIED HERE: Changed 'bundle.max.z' to 'boundary.max.z'
     topRightBack = Octree(AABB(vm.Vector3(cx, boundary.min.y, cz), vm.Vector3(boundary.max.x, cy, boundary.max.z)), capacity: capacity);
     bottomLeftBack = Octree(AABB(vm.Vector3(boundary.min.x, cy, cz), vm.Vector3(cx, boundary.max.y, boundary.max.z)), capacity: capacity);
     bottomRightBack = Octree(AABB(vm.Vector3(cx, cy, cz), vm.Vector3(boundary.max.x, boundary.max.y, boundary.max.z)), capacity: capacity);
@@ -216,9 +215,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double cameraTheta = 0.78; // Azimuthal rotation angle
   double cameraPhi = 1.2;    // Polar angle
   
-  // Anti-Cheat Autonomous Rotational Drift
-  double autoRotateSpeedTheta = 0.15;
-  double autoRotateSpeedPhi = 0.08;
+  // FIXED: Reduced continuous auto-rotational drift speed down to 1/3rd speed
+  double autoRotateSpeedTheta = 0.05;
+  double autoRotateSpeedPhi = 0.025;
   bool isUserInteractingWithBox = false;
 
   // Multi-Touch Input Mapping tracker
@@ -282,7 +281,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     });
 
-    spawnTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) {
+    // FIXED: Adjusted spawn speed to mirror the slower general game pace
+    spawnTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
       if (isPlaying) _spawnParticle();
     });
 
@@ -301,13 +301,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _spawnParticle() {
-    // All paths initialize at mathematical absolute center (0,0,0)
+    // FIXED: Cut baseline particle initialization velocities down to 1/4th speed
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 12,
+        (math.Random().nextDouble() * 2 - 1) * 2.0,
+        (math.Random().nextDouble() * 2 - 1) * 2.0,
+        (math.Random().nextDouble() * 2 - 1) * 3.0,
       ),
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
@@ -360,9 +360,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
 
         if (p.state == ParticleState.active) {
-          // Centrifugal acceleration logic
+          // FIXED: Scaled back centrifugal continuous acceleration curves to 1/4th intensity
           vm.Vector3 accelerationDirection = p.velocity.normalized();
-          p.velocity += accelerationDirection * (distanceToCenter * 0.09) * dt;
+          p.velocity += accelerationDirection * (distanceToCenter * 0.0225) * dt;
           p.position += p.velocity * dt;
 
           // Color Space interpolation logic via depth/threat mappings
@@ -421,17 +421,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
     vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
-    vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix..multiply(viewMatrix))..invert();
+    
+    // FIXED: Avoided in-place method cascading multiplication corruption
+    vm.Matrix4 combined = projectionMatrix * viewMatrix;
+    vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(combined)..invert();
 
     // Normalized Device Coordinates calculation profiles
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
     double ndcY = 1.0 - (touchPoint.dy / widgetBounds.height) * 2.0;
 
     vm.Vector4 nearPoint = vm.Vector4(ndcX, ndcY, -1.0, 1.0);
-    vm.Vector4 farPoint = vm.Vector4(ndcX, ndcY, 1.0, 1.0);
+    vm.Vector4 KissTargetFar = vm.Vector4(ndcX, ndcY, 1.0, 1.0);
 
     vm.Vector4 worldNear = inverseProjectionView * nearPoint;
-    vm.Vector4 worldFar = inverseProjectionView * farPoint;
+    vm.Vector4 worldFar = inverseProjectionView * KissTargetFar;
 
     worldNear.scale(1.0 / worldNear.w);
     worldFar.scale(1.0 / worldFar.w);
@@ -464,7 +467,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       vm.Vector3? pt = plane.intersectRay(ray);
       if (pt != null) {
         // Confirm interception point is nested cleanly within the geometric limits
-        if (pt.x.abs() <= halfX + 0.1 && pt.y.abs() <= halfY + 0.1 && pt.z.abs() <= halfZ + 0.1) {
+        if (pt.x.abs() <= halfX + 0.5 && pt.y.abs() <= halfY + 0.5 && pt.z.abs() <= halfZ + 0.5) {
           double dist = (pt - ray.origin).length;
           if (dist < closestDistance) {
             closestDistance = dist;
@@ -515,6 +518,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         cameraTheta -= delta.dx * 0.007;
         cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
+    } else if (isUserInteractingWithBox && activeTouches.length >= 2) {
+      _processMultiTouchIntersection(screenSize);
     }
   }
 
