@@ -217,7 +217,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   List<Particle3D> particles = [];
   List<GravityImpulse> activeImpulses = [];
   
-  // Real-time Single Finger Depth Ray tracker
   GrowingRay? activeGrowingRay;
 
   late Timer gameTimer;
@@ -339,10 +338,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
-    // Linearly grow the active depth ray deeper inward through the box frame
     if (activeGrowingRay != null) {
       setState(() {
-        // Linear progression pace (220 units deep per second)
         activeGrowingRay!.currentDepth += 220.0 * dt;
         if (activeGrowingRay!.currentDepth > boxDimensions.z) {
           activeGrowingRay!.currentDepth = boxDimensions.z;
@@ -387,8 +384,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
-        // FIXED: REWORKED GRAVITY IMPULSE STEERING BEHAVIOR
-        // Preserves particle velocity length (speed) while providing a gentle directional change nudge
+        // FIXED: Replaced vm.Vector3.lerp with standard explicit vector arithmetic 
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
@@ -400,12 +396,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             double pullFactor = (1.0 - (distanceToImpulse / impulse.maxRadius)).clamp(0.0, 1.0);
             double originalSpeed = p.velocity.length;
 
-            // Smoothly interpolate the velocity vector heading towards the target point without adding linear speed
-            p.velocity = vm.Vector3.lerp(
-              p.velocity, 
-              headingToImpulse * originalSpeed, 
-              pullFactor * 1.6 * dt // Gentle step turn weight
-            )!;
+            vm.Vector3 targetVelocity = headingToImpulse * originalSpeed;
+            double t = pullFactor * 1.6 * dt;
+            
+            // Explicit Vector Linear Interpolation: Current + (Target - Current) * t
+            p.velocity = p.velocity + (targetVelocity - p.velocity) * t;
           }
         }
 
@@ -511,11 +506,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isUserInteractingWithBox = true;
 
       if (activeTouches.length >= 2) {
-        // Multi-touch intervention clears single ray calculations instantly
         activeGrowingRay = null;
         _processMultiTouchIntersection(screenSize);
       } else {
-        // FIXED: Initialize linear depth-charging ray tracking sequence on surface entry
         Ray ray = _castScreenRay(localPosition, screenSize);
         vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
         if (entryPoint != null) {
@@ -548,7 +541,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         activeGrowingRay = null;
         _processMultiTouchIntersection(screenSize);
       } else if (activeGrowingRay != null && activeGrowingRay!.pointerId == pointerId) {
-        // Pivot ray angle if finger slides, keeping depth progression unified
         Ray ray = _castScreenRay(localPosition, screenSize);
         vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
         if (entryPoint != null) {
@@ -570,12 +562,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (pointerId == cameraTrackingPointerId) {
       cameraTrackingPointerId = null;
     } else if (isUserInteractingWithBox) {
-      // FIXED: Release execution triggers impulse precisely at the depth ray termination tip
       if (activeGrowingRay != null && activeGrowingRay!.pointerId == pointerId) {
         vm.Vector3 targetImpulsePosition = activeGrowingRay!.entryPoint + 
             (activeGrowingRay!.direction * activeGrowingRay!.currentDepth);
         
-        // Pin targeting arrays securely inside spatial parameters
         double hX = boxDimensions.x / 2;
         double hY = boxDimensions.y / 2;
         double hZ = boxDimensions.z / 2;
@@ -642,7 +632,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 impulses: activeImpulses,
                 cameraPosition: _computeCameraPosition(),
                 safeRadius: safeIncubationRadius,
-                activeRay: activeGrowingRay, // Connect live tracking interface parameters
+                activeRay: activeGrowingRay, 
               ),
             ),
           ),
@@ -750,7 +740,7 @@ class Scene3DPainter extends CustomPainter {
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
-    _drawGrowingDepthRay(canvas, size, vpMatrix); // Render active ray vector tracers
+    _drawGrowingDepthRay(canvas, size, vpMatrix); 
     _drawGravityImpulses(canvas, size, vpMatrix);
     _drawParticles(canvas, size, vpMatrix);
   }
@@ -766,7 +756,7 @@ class Scene3DPainter extends CustomPainter {
     return Offset(x, y);
   }
 
-  // FIXED: ADDED DEPTH RAY GRAPHICAL PIPELINE RENDER PASS
+  // FIXED: Replaced Colors.magentaAccent with accurate hex construction parameters
   void _drawGrowingDepthRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     if (activeRay == null) return;
 
@@ -777,22 +767,19 @@ class Scene3DPainter extends CustomPainter {
     Offset? screenEnd = _projectPoint(endPos, size, vpMatrix);
 
     if (screenStart != null && screenEnd != null) {
-      // Draw growing depth line vector
       final rayLinePaint = Paint()
-        ..color = Colors.magentaAccent
+        ..color = const Color(0xFFFF00FF)
         ..strokeWidth = 2.5
         ..style = PaintingStyle.stroke;
       canvas.drawLine(screenStart, screenEnd, rayLinePaint);
 
-      // Draw active drill bit depth reticle at its leading tip
       final rayTipPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
       canvas.drawCircle(screenEnd, 4.0, rayTipPaint);
 
-      // Accent ring around depth tracer point
       final rayRingPaint = Paint()
-        ..color = Colors.magentaAccent.withOpacity(0.5)
+        ..color = const Color(0xFFFF00FF).withOpacity(0.5)
         ..strokeWidth = 1.0
         ..style = PaintingStyle.stroke;
       canvas.drawCircle(screenEnd, 9.0, rayRingPaint);
