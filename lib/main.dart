@@ -62,7 +62,23 @@ class GravityImpulse {
   }
 }
 
-/// A bounding box defining spatial limits
+/// Tracks an active single-finger depth ray growing into the 3D box volume
+class GrowingRay {
+  final int pointerId;
+  final vm.Vector3 origin;
+  final vm.Vector3 direction;
+  final vm.Vector3 entryPoint;
+  double currentDepth;
+
+  GrowingRay({
+    required this.pointerId,
+    required this.origin,
+    required this.direction,
+    required this.entryPoint,
+    this.currentDepth = 0.0,
+  });
+}
+
 class AABB {
   final vm.Vector3 min;
   final vm.Vector3 max;
@@ -81,7 +97,6 @@ class AABB {
   }
 }
 
-/// Natively implemented 3D Octree for efficient spatial partitioning
 class Octree {
   final AABB boundary;
   final int capacity;
@@ -111,20 +126,20 @@ class Octree {
     isDivided = true;
   }
 
-  bool insert(Particle3D particle) {
-    if (!boundary.contains(particle.position)) return false;
+  bool insert(Particle3D p) {
+    if (!boundary.contains(p.position)) return false;
 
     if (particles.length < capacity && !isDivided) {
-      particles.add(particle);
+      particles.add(p);
       return true;
     }
 
     if (!isDivided) subdivide();
 
-    return topLeftFront.insert(particle) || topRightFront.insert(particle) ||
-           bottomLeftFront.insert(particle) || bottomRightFront.insert(particle) ||
-           topLeftBack.insert(particle) || topRightBack.insert(particle) ||
-           bottomLeftBack.insert(particle) || bottomRightBack.insert(particle);
+    return topLeftFront.insert(p) || topRightFront.insert(p) ||
+           bottomLeftFront.insert(p) || bottomRightFront.insert(p) ||
+           topLeftBack.insert(p) || topRightBack.insert(p) ||
+           bottomLeftBack.insert(p) || bottomRightBack.insert(p);
   }
 
   List<Particle3D> queryRange(AABB range) {
@@ -193,34 +208,31 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
-  // Game dimensions
-  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0); // Z is the long dimension
+  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0);
   final double safeIncubationRadius = 25.0;
 
-  // Game state
   bool isPlaying = false;
   int currentScore = 0;
   List<int> highScores = [];
   List<Particle3D> particles = [];
   List<GravityImpulse> activeImpulses = [];
+  
+  // Real-time Single Finger Depth Ray tracker
+  GrowingRay? activeGrowingRay;
 
-  // Pacing
   late Timer gameTimer;
   late Timer spawnTimer;
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  // Camera Coordinate Tracing (Spherical coordinates)
   double cameraRadius = 400.0;
-  double cameraTheta = 0.78; // Azimuthal rotation angle
-  double cameraPhi = 1.2;    // Polar angle
+  double cameraTheta = 0.78; 
+  double cameraPhi = 1.2;    
   
-  // FIXED: Reduced continuous auto-rotational drift speed down to 1/3rd speed
   double autoRotateSpeedTheta = 0.05;
   double autoRotateSpeedPhi = 0.025;
   bool isUserInteractingWithBox = false;
 
-  // Multi-Touch Input Mapping tracker
   Map<int, Offset> activeTouches = {};
   int? cameraTrackingPointerId;
 
@@ -264,12 +276,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() {
       particles.clear();
       activeImpulses.clear();
+      activeGrowingRay = null;
       currentScore = 0;
       elapsedMilliseconds = 0;
       isPlaying = true;
       gameStartTime = DateTime.now();
-      
-      // Seed first particle
       _spawnParticle();
     });
 
@@ -281,7 +292,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     });
 
-    // FIXED: Adjusted spawn speed to mirror the slower general game pace
     spawnTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
       if (isPlaying) _spawnParticle();
     });
@@ -293,6 +303,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!isPlaying) return;
     setState(() {
       isPlaying = false;
+      activeGrowingRay = null;
     });
     _gameLoopController.stop();
     gameTimer.cancel();
@@ -301,7 +312,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _spawnParticle() {
-    // FIXED: Cut baseline particle initialization velocities down to 1/4th speed
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
@@ -310,20 +320,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         (math.Random().nextDouble() * 2 - 1) * 3.0,
       ),
       state: ParticleState.incubating,
-      color: const Color(0xFF00FF00),
     );
     particles.add(p);
   }
 
   // ==========================================
-  // 4. CORE ENGINE CORE ENGINE LOOP
+  // 4. CORE ENGINE LOOP
   // ==========================================
   void _updatePhysicsLoop() {
     if (!isPlaying) return;
 
-    double dt = 0.016; // Stable DeltaTime baseline (~60FPS)
+    double dt = 0.016; 
 
-    // Apply continuous camera auto-drift anti-cheat if no active interaction is ongoing
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
@@ -331,14 +339,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
-    // Initialize Native Dart Spatial Partitioning Tree
+    // Linearly grow the active depth ray deeper inward through the box frame
+    if (activeGrowingRay != null) {
+      setState(() {
+        // Linear progression pace (220 units deep per second)
+        activeGrowingRay!.currentDepth += 220.0 * dt;
+        if (activeGrowingRay!.currentDepth > boxDimensions.z) {
+          activeGrowingRay!.currentDepth = boxDimensions.z;
+        }
+      });
+    }
+
     final halfX = boxDimensions.x / 2;
     final halfY = boxDimensions.y / 2;
     final halfZ = boxDimensions.z / 2;
     AABB spatialVolume = AABB(vm.Vector3(-halfX, -halfY, -halfZ), vm.Vector3(halfX, halfY, halfZ));
     Octree frameOctree = Octree(spatialVolume);
 
-    // Filter dead elements out of game state
     activeImpulses.removeWhere((impulse) => impulse.getProgress() >= 1.0);
 
     for (var p in particles) {
@@ -349,23 +366,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       for (var p in particles) {
         double distanceToCenter = p.position.length;
 
-        // State Machine Transition evaluations
         if (p.state == ParticleState.incubating) {
           if (distanceToCenter > safeIncubationRadius) {
             p.state = ParticleState.active;
           } else {
-            // Incubation safe zone slow drift
             p.position += p.velocity * dt * 0.4;
           }
         }
 
         if (p.state == ParticleState.active) {
-          // FIXED: Scaled back centrifugal continuous acceleration curves to 1/4th intensity
           vm.Vector3 accelerationDirection = p.velocity.normalized();
           p.velocity += accelerationDirection * (distanceToCenter * 0.0225) * dt;
           p.position += p.velocity * dt;
 
-          // Color Space interpolation logic via depth/threat mappings
           double threatFactor = (p.position.xy.length / halfX).clamp(0.0, 1.0);
           if (threatFactor < 0.5) {
             p.color = Color.lerp(const Color(0xFF00FF00), const Color(0xFFFFA500), threatFactor * 2)!;
@@ -374,27 +387,32 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
-        // Apply spatial gravity calculations using Octree partitions
+        // FIXED: REWORKED GRAVITY IMPULSE STEERING BEHAVIOR
+        // Preserves particle velocity length (speed) while providing a gentle directional change nudge
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
           
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
-            vm.Vector3 forceDirection = impulse.position - p.position;
-            forceDirection.normalize();
-            // Pull vectors inward cleanly, balancing system velocity curves
-            double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
-            p.velocity += forceDirection * pullIntensity * dt;
+            vm.Vector3 headingToImpulse = impulse.position - p.position;
+            headingToImpulse.normalize();
+            
+            double pullFactor = (1.0 - (distanceToImpulse / impulse.maxRadius)).clamp(0.0, 1.0);
+            double originalSpeed = p.velocity.length;
+
+            // Smoothly interpolate the velocity vector heading towards the target point without adding linear speed
+            p.velocity = vm.Vector3.lerp(
+              p.velocity, 
+              headingToImpulse * originalSpeed, 
+              pullFactor * 1.6 * dt // Gentle step turn weight
+            )!;
           }
         }
 
-        // Border Rules & Topology Assertions
-        // Non-Lethal square Z-ends configuration wrap-around
         if (p.position.z.abs() > halfZ) {
-          p.position.z = -p.position.z; // Teleport cleanly to inverse coordinate pole
+          p.position.z = -p.position.z; 
         }
 
-        // Lethal continuous long wall checks
         if (p.position.x.abs() >= halfX || p.position.y.abs() >= halfY) {
           _triggerGameOver();
           break;
@@ -413,7 +431,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return vm.Vector3(x, y, z);
   }
 
-  /// Natively projects screen points into 3D Space Coordinates
   Ray _castScreenRay(Offset touchPoint, Size widgetBounds) {
     vm.Vector3 camPos = _computeCameraPosition();
     vm.Vector3 target = vm.Vector3(0, 0, 0);
@@ -422,19 +439,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
     vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
     
-    // FIXED: Avoided in-place method cascading multiplication corruption
     vm.Matrix4 combined = projectionMatrix * viewMatrix;
     vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(combined)..invert();
 
-    // Normalized Device Coordinates calculation profiles
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
     double ndcY = 1.0 - (touchPoint.dy / widgetBounds.height) * 2.0;
 
     vm.Vector4 nearPoint = vm.Vector4(ndcX, ndcY, -1.0, 1.0);
-    vm.Vector4 KissTargetFar = vm.Vector4(ndcX, ndcY, 1.0, 1.0);
+    vm.Vector4 farPoint = vm.Vector4(ndcX, ndcY, 1.0, 1.0);
 
     vm.Vector4 worldNear = inverseProjectionView * nearPoint;
-    vm.Vector4 worldFar = inverseProjectionView * KissTargetFar;
+    vm.Vector4 worldFar = inverseProjectionView * farPoint;
 
     worldNear.scale(1.0 / worldNear.w);
     worldFar.scale(1.0 / worldFar.w);
@@ -445,7 +460,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Ray(rayOrigin, rayDirection);
   }
 
-  /// Resolves the raw raycast interception against box faces
   vm.Vector3? _findRayIntersectionWithBox(Ray ray) {
     double halfX = boxDimensions.x / 2;
     double halfY = boxDimensions.y / 2;
@@ -466,7 +480,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     for (var plane in planes) {
       vm.Vector3? pt = plane.intersectRay(ray);
       if (pt != null) {
-        // Confirm interception point is nested cleanly within the geometric limits
         if (pt.x.abs() <= halfX + 0.5 && pt.y.abs() <= halfY + 0.5 && pt.z.abs() <= halfZ + 0.5) {
           double dist = (pt - ray.origin).length;
           if (dist < closestDistance) {
@@ -485,7 +498,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
     activeTouches[pointerId] = localPosition;
 
-    // Evaluate screen positioning boundaries (80/20 UI Separation rule)
     double marginX = screenSize.width * 0.15;
     double marginY = screenSize.height * 0.15;
     bool insideOutskirtsZone = localPosition.dx < marginX || 
@@ -494,14 +506,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                localPosition.dy > screenSize.height - marginY;
 
     if (insideOutskirtsZone && cameraTrackingPointerId == null) {
-      // Establish continuous drag lock configuration on the camera system
       cameraTrackingPointerId = pointerId;
     } else if (!insideOutskirtsZone) {
-      // Route input processing directly into tactical impulse zone
       isUserInteractingWithBox = true;
 
       if (activeTouches.length >= 2) {
+        // Multi-touch intervention clears single ray calculations instantly
+        activeGrowingRay = null;
         _processMultiTouchIntersection(screenSize);
+      } else {
+        // FIXED: Initialize linear depth-charging ray tracking sequence on surface entry
+        Ray ray = _castScreenRay(localPosition, screenSize);
+        vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
+        if (entryPoint != null) {
+          setState(() {
+            activeGrowingRay = GrowingRay(
+              pointerId: pointerId,
+              origin: ray.origin,
+              direction: ray.direction,
+              entryPoint: entryPoint,
+            );
+          });
+        }
       }
     }
   }
@@ -512,41 +538,62 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     activeTouches[pointerId] = localPosition;
 
     if (pointerId == cameraTrackingPointerId) {
-      // Update camera spherical parameters dynamically via pan updates
       Offset delta = localPosition - previousPosition;
       setState(() {
         cameraTheta -= delta.dx * 0.007;
         cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
-    } else if (isUserInteractingWithBox && activeTouches.length >= 2) {
-      _processMultiTouchIntersection(screenSize);
+    } else if (isUserInteractingWithBox) {
+      if (activeTouches.length >= 2) {
+        activeGrowingRay = null;
+        _processMultiTouchIntersection(screenSize);
+      } else if (activeGrowingRay != null && activeGrowingRay!.pointerId == pointerId) {
+        // Pivot ray angle if finger slides, keeping depth progression unified
+        Ray ray = _castScreenRay(localPosition, screenSize);
+        vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
+        if (entryPoint != null) {
+          setState(() {
+            activeGrowingRay = GrowingRay(
+              pointerId: pointerId,
+              origin: ray.origin,
+              direction: ray.direction,
+              entryPoint: entryPoint,
+              currentDepth: activeGrowingRay!.currentDepth,
+            );
+          });
+        }
+      }
     }
   }
 
   void _handleTouchUp(int pointerId, Size screenSize) {
     if (pointerId == cameraTrackingPointerId) {
       cameraTrackingPointerId = null;
-    } else if (isUserInteractingWithBox && activeTouches.length == 1) {
-      // Evaluate a Single-Touch Depth Ray release execution
-      Offset releasePoint = activeTouches[pointerId]!;
-      _processSingleTouchDepthRay(releasePoint, screenSize);
+    } else if (isUserInteractingWithBox) {
+      // FIXED: Release execution triggers impulse precisely at the depth ray termination tip
+      if (activeGrowingRay != null && activeGrowingRay!.pointerId == pointerId) {
+        vm.Vector3 targetImpulsePosition = activeGrowingRay!.entryPoint + 
+            (activeGrowingRay!.direction * activeGrowingRay!.currentDepth);
+        
+        // Pin targeting arrays securely inside spatial parameters
+        double hX = boxDimensions.x / 2;
+        double hY = boxDimensions.y / 2;
+        double hZ = boxDimensions.z / 2;
+        targetImpulsePosition.x = targetImpulsePosition.x.clamp(-hX, hX);
+        targetImpulsePosition.y = targetImpulsePosition.y.clamp(-hY, hY);
+        targetImpulsePosition.z = targetImpulsePosition.z.clamp(-hZ, hZ);
+
+        setState(() {
+          activeImpulses.add(GravityImpulse(position: targetImpulsePosition));
+        });
+        activeGrowingRay = null;
+      }
     }
 
     activeTouches.remove(pointerId);
     if (activeTouches.isEmpty) {
-      isUserInteractingWithBox = false; // Smoothly release autonomous rotation inhibitors
-    }
-  }
-
-  void _processSingleTouchDepthRay(Offset screenPoint, Size bounds) {
-    Ray ray = _castScreenRay(screenPoint, bounds);
-    vm.Vector3? intersect = _findRayIntersectionWithBox(ray);
-
-    if (intersect != null) {
-      setState(() {
-        // Drop standard gravity impulse straight down the face normal axis
-        activeImpulses.add(GravityImpulse(position: intersect * 0.65));
-      });
+      isUserInteractingWithBox = false; 
+      activeGrowingRay = null;
     }
   }
 
@@ -561,7 +608,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     vm.Vector3? p2 = _findRayIntersectionWithBox(ray2);
 
     if (p1 != null && p2 != null) {
-      // Calculate closest approach point between two lines in space
       vm.Vector3 lineVec = p2 - p1;
       double midpointFactor = lineVec.length * 0.5;
       vm.Vector3 midPointIntersection = p1 + (lineVec.normalized() * midpointFactor);
@@ -583,7 +629,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       backgroundColor: const Color(0xFF020208),
       body: Stack(
         children: [
-          // Primary Canvas and Input Dispatch Matrix
           Listener(
             onPointerDown: (e) => _handleTouchDown(e.pointer, e.localPosition, screenSize),
             onPointerMove: (e) => _handleTouchMove(e.pointer, e.localPosition, screenSize),
@@ -597,11 +642,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 impulses: activeImpulses,
                 cameraPosition: _computeCameraPosition(),
                 safeRadius: safeIncubationRadius,
+                activeRay: activeGrowingRay, // Connect live tracking interface parameters
               ),
             ),
           ),
 
-          // Core HUD Minimalist Text Overlay
           Positioned(
             top: 40.0,
             left: 20.0,
@@ -616,7 +661,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ),
 
-          // Staged State Modals
           if (!isPlaying) _buildMenuOverlay(),
         ],
       ),
@@ -642,7 +686,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   'Herd particles away from the 4 long side walls.\n'
                   'Square ends wrap around continuously.\n\n'
                   '• Swipe Outskirts to rotate framework camera\n'
-                  '• Tap Box to cast a Single-Touch Depth Ray\n'
+                  '• Hold Box to view a growing Linear Depth Ray\n'
+                  '• Release to drop a Gentle Steering Impulse at its tip\n'
                   '• Touch 2 faces to drop a Crosshair Intersection',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
@@ -684,6 +729,7 @@ class Scene3DPainter extends CustomPainter {
   final List<GravityImpulse> impulses;
   final vm.Vector3 cameraPosition;
   final double safeRadius;
+  final GrowingRay? activeRay;
 
   Scene3DPainter({
     required this.boxDimensions,
@@ -691,11 +737,11 @@ class Scene3DPainter extends CustomPainter {
     required this.impulses,
     required this.cameraPosition,
     required this.safeRadius,
+    this.activeRay,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Standard perspective rendering transformations
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
@@ -704,6 +750,7 @@ class Scene3DPainter extends CustomPainter {
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
+    _drawGrowingDepthRay(canvas, size, vpMatrix); // Render active ray vector tracers
     _drawGravityImpulses(canvas, size, vpMatrix);
     _drawParticles(canvas, size, vpMatrix);
   }
@@ -712,11 +759,44 @@ class Scene3DPainter extends CustomPainter {
     vm.Vector4 pos4 = vm.Vector4(point.x, point.y, point.z, 1.0);
     vm.Vector4 projected = vpMatrix * pos4;
 
-    if (projected.w <= 0) return null; // Clip geometry behind back clipping plane
+    if (projected.w <= 0) return null; 
 
     double x = (projected.x / projected.w + 1.0) * size.width / 2.0;
     double y = (1.0 - projected.y / projected.w) * size.height / 2.0;
     return Offset(x, y);
+  }
+
+  // FIXED: ADDED DEPTH RAY GRAPHICAL PIPELINE RENDER PASS
+  void _drawGrowingDepthRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+    if (activeRay == null) return;
+
+    vm.Vector3 startPos = activeRay!.entryPoint;
+    vm.Vector3 endPos = activeRay!.entryPoint + (activeRay!.direction * activeRay!.currentDepth);
+
+    Offset? screenStart = _projectPoint(startPos, size, vpMatrix);
+    Offset? screenEnd = _projectPoint(endPos, size, vpMatrix);
+
+    if (screenStart != null && screenEnd != null) {
+      // Draw growing depth line vector
+      final rayLinePaint = Paint()
+        ..color = Colors.magentaAccent
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(screenStart, screenEnd, rayLinePaint);
+
+      // Draw active drill bit depth reticle at its leading tip
+      final rayTipPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(screenEnd, 4.0, rayTipPaint);
+
+      // Accent ring around depth tracer point
+      final rayRingPaint = Paint()
+        ..color = Colors.magentaAccent.withOpacity(0.5)
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawCircle(screenEnd, 9.0, rayRingPaint);
+    }
   }
 
   void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
@@ -724,7 +804,6 @@ class Scene3DPainter extends CustomPainter {
     double hY = boxDimensions.y / 2;
     double hZ = boxDimensions.z / 2;
 
-    // Define vertices of the box matrix
     List<vm.Vector3> vertices = [
       vm.Vector3(-hX, -hY, -hZ), vm.Vector3(hX, -hY, -hZ),
       vm.Vector3(hX, hY, -hZ), vm.Vector3(-hX, hY, -hZ),
@@ -734,24 +813,21 @@ class Scene3DPainter extends CustomPainter {
 
     List<Offset?> projected = vertices.map((v) => _projectPoint(v, size, vpMatrix)).toList();
 
-    // Define structural edge configurations indices pairs
     List<List<int>> edges = [
-      [0, 1], [1, 2], [2, 3], [3, 0], // Back Face
-      [4, 5], [5, 6], [6, 7], [7, 4], // Front Face
-      [0, 4], [1, 5], [2, 6], [3, 7], // Connecting Long Lethal Borders
+      [0, 1], [1, 2], [2, 3], [3, 0], 
+      [4, 5], [5, 6], [6, 7], [7, 4], 
+      [0, 4], [1, 5], [2, 6], [3, 7], 
     ];
 
     final Paint edgePaint = Paint()
       ..style = PaintingStyle.stroke
       ..isAntiAlias = true;
 
-    // Render depth-weighted structural lines
     for (var edge in edges) {
       Offset? p1 = projected[edge[0]];
       Offset? p2 = projected[edge[1]];
 
       if (p1 != null && p2 != null) {
-        // Depth scale assessment based on point distance averages
         double averageDepth = (vertices[edge[0]].z + vertices[edge[1]].z) / (hZ * 2) + 0.5;
         
         edgePaint.color = Colors.cyan.withOpacity(math.max(0.15, 1.0 - averageDepth));
@@ -761,7 +837,6 @@ class Scene3DPainter extends CustomPainter {
       }
     }
 
-    // Interior Sub-Grids & Fresnel Visual Effects simulation
     _drawInteriorSubGrids(canvas, size, vpMatrix, hX, hY, hZ);
   }
 
@@ -771,7 +846,6 @@ class Scene3DPainter extends CustomPainter {
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
 
-    // Draw lines along long walls faces
     for (double i = -hZ + 50; i < hZ; i += 50) {
       List<vm.Vector3> ring = [
         vm.Vector3(-hX, -hY, i), vm.Vector3(hX, -hY, i),
@@ -787,31 +861,24 @@ class Scene3DPainter extends CustomPainter {
   }
 
   void _drawParticles(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
-    // Render setup for additive color blending simulation
     final Paint pPaint = Paint()..blendMode = BlendMode.plus;
 
     for (var p in particles) {
       Offset? screenPos = _projectPoint(p.position, size, vpMatrix);
       if (screenPos == null) continue;
 
-      // Distance depth evaluation scaling profiles
       double distanceToCam = (cameraPosition - p.position).length;
       double scale = (450.0 / distanceToCam).clamp(0.3, 3.0);
 
-      // Target core scaling properties
       double baseRadius = p.state == ParticleState.incubating ? p.radius * 0.7 : p.radius;
       double finalRadius = baseRadius * scale;
 
       pPaint.color = p.color.withOpacity((0.9 * (scale / 3.0)).clamp(0.2, 1.0));
-
-      // Draw primary light point element
       canvas.drawCircle(screenPos, finalRadius, pPaint);
 
-      // Add a secondary bloom pass to support bleed lighting values when overlapping
       pPaint.color = p.color.withOpacity(0.25);
       canvas.drawCircle(screenPos, finalRadius * 2.2, pPaint);
 
-      // Map a non-lethal ghosting placeholder reflection across square boundaries
       double halfZ = boxDimensions.z / 2;
       if (p.position.z.abs() > halfZ * 0.75) {
         vm.Vector3 ghostPosition = vm.Vector3(p.position.x, p.position.y, -p.position.z);
