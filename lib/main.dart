@@ -35,6 +35,7 @@ enum ParticleState { incubating, active }
 class Particle3D {
   vm.Vector3 position;
   vm.Vector3 velocity;
+  final double initialSpeed;
   ParticleState state;
   double radius;
   Color color;
@@ -42,6 +43,7 @@ class Particle3D {
   Particle3D({
     required this.position,
     required this.velocity,
+    required this.initialSpeed,
     this.state = ParticleState.incubating,
     this.radius = 3.0,
     this.color = const Color(0xFF00FF00),
@@ -51,8 +53,8 @@ class Particle3D {
 class GravityImpulse {
   final vm.Vector3 position;
   final DateTime createdAt;
-  final double maxRadius = 130.0;
-  final Duration duration = const Duration(milliseconds: 500);
+  final double maxRadius = 150.0;
+  final Duration duration = const Duration(milliseconds: 600);
 
   GravityImpulse({required this.position}) : createdAt = DateTime.now();
 
@@ -62,19 +64,25 @@ class GravityImpulse {
   }
 }
 
-/// Visual tracking structure for laser path interpolation
-class LaserRay {
-  final vm.Vector3 start;
-  final vm.Vector3 end;
-  final DateTime createdAt;
-  final Duration duration = const Duration(milliseconds: 350);
+class VisualRay {
+  final int pointerId;
+  final vm.Vector3 startPoint;
+  final vm.Vector3 direction;
+  double currentLength;
+  final double growthSpeed = 380.0; // Units per second
 
-  LaserRay({required this.start, required this.end}) : createdAt = DateTime.now();
+  VisualRay({
+    required this.pointerId,
+    required this.startPoint,
+    required this.direction,
+    this.currentLength = 0.0,
+  });
+}
 
-  double getProgress() {
-    final elapsed = DateTime.now().difference(createdAt).inMilliseconds;
-    return (elapsed / duration.inMilliseconds).clamp(0.0, 1.0);
-  }
+class IntersectionResult {
+  final vm.Vector3 point;
+  final vm.Vector3 normal;
+  IntersectionResult({required this.point, required this.normal});
 }
 
 class AABB {
@@ -214,7 +222,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   List<int> highScores = [];
   List<Particle3D> particles = [];
   List<GravityImpulse> activeImpulses = [];
-  List<LaserRay> activeRays = [];
+  VisualRay? activeBuildingRay;
 
   late Timer gameTimer;
   late Timer spawnTimer;
@@ -228,7 +236,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double autoRotateSpeedTheta = 0.15;
   double autoRotateSpeedPhi = 0.08;
   bool isUserInteractingWithBox = false;
-  bool wasMultiTouchDuringGesture = false;
 
   Map<int, Offset> activeTouches = {};
   int? cameraTrackingPointerId;
@@ -273,7 +280,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() {
       particles.clear();
       activeImpulses.clear();
-      activeRays.clear();
+      activeBuildingRay = null;
       currentScore = 0;
       elapsedMilliseconds = 0;
       isPlaying = true;
@@ -308,19 +315,25 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _spawnParticle() {
+    final initialVel = vm.Vector3(
+      (math.Random().nextDouble() * 2 - 1) * 8,
+      (math.Random().nextDouble() * 2 - 1) * 8,
+      (math.Random().nextDouble() * 2 - 1) * 12,
+    );
+    
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
-      velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 12,
-      ),
+      velocity: initialVel,
+      initialSpeed: initialVel.length,
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
     );
     particles.add(p);
   }
 
+  // ==========================================
+  // 4. CORE ENGINE LOOP
+  // ==========================================
   void _updatePhysicsLoop() {
     if (!isPlaying) return;
 
@@ -333,15 +346,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
+    // Accumulate the length of the orthogonal ray while held
+    if (activeBuildingRay != null) {
+      setState(() {
+        activeBuildingRay!.currentLength += activeBuildingRay!.growthSpeed * dt;
+        if (activeBuildingRay!.currentLength > boxDimensions.z) {
+          activeBuildingRay!.currentLength = boxDimensions.z;
+        }
+      });
+    }
+
     final halfX = boxDimensions.x / 2;
     final halfY = boxDimensions.y / 2;
     final halfZ = boxDimensions.z / 2;
     AABB spatialVolume = AABB(vm.Vector3(-halfX, -halfY, -halfZ), vm.Vector3(halfX, halfY, halfZ));
     Octree frameOctree = Octree(spatialVolume);
 
-    // Prune expired visual vectors and forces
     activeImpulses.removeWhere((impulse) => impulse.getProgress() >= 1.0);
-    activeRays.removeWhere((ray) => ray.getProgress() >= 1.0);
 
     for (var p in particles) {
       frameOctree.insert(p);
@@ -360,8 +381,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
 
         if (p.state == ParticleState.active) {
-          vm.Vector3 accelerationDirection = p.velocity.normalized();
-          p.velocity += accelerationDirection * (distanceToCenter * 0.09) * dt;
           p.position += p.velocity * dt;
 
           double threatFactor = (p.position.xy.length / halfX).clamp(0.0, 1.0);
@@ -372,6 +391,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
+        // Apply impulse forces purely as steering adjustments (preserving constant scalar speed)
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
@@ -382,6 +402,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
             p.velocity += forceDirection * pullIntensity * dt;
           }
+        }
+
+        // absolute velocity normalization protection shield
+        if (p.velocity.length2 > 1e-6) {
+          p.velocity = p.velocity.normalized() * p.initialSpeed;
         }
 
         if (p.position.z.abs() > halfZ) {
@@ -430,7 +455,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Ray(rayOrigin, rayDirection);
   }
 
-  vm.Vector3? _findRayIntersectionWithBox(Ray ray) {
+  IntersectionResult? _findRayIntersectionWithBox(Ray ray) {
     double halfX = boxDimensions.x / 2;
     double halfY = boxDimensions.y / 2;
     double halfZ = boxDimensions.z / 2;
@@ -444,26 +469,29 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       Plane3D(vm.Vector3(0, 0, -1), vm.Vector3(0, 0, -halfZ)),
     ];
 
-    vm.Vector3? bestIntersection;
+    IntersectionResult? bestResult;
     double closestDistance = double.infinity;
 
     for (var plane in planes) {
+      // FRONT FACES FILTER: Outward normal dot Ray direction must be negative to hit exterior front shells
+      if (plane.normal.dot(ray.direction) >= 0) continue;
+
       vm.Vector3? pt = plane.intersectRay(ray);
       if (pt != null) {
-        if (pt.x.abs() <= halfX + 0.1 && pt.y.abs() <= halfY + 0.1 && pt.z.abs() <= halfZ + 0.1) {
+        if (pt.x.abs() <= halfX + 0.5 && pt.y.abs() <= halfY + 0.5 && pt.z.abs() <= halfZ + 0.5) {
           double dist = (pt - ray.origin).length;
           if (dist < closestDistance) {
             closestDistance = dist;
-            bestIntersection = pt;
+            bestResult = IntersectionResult(point: pt, normal: plane.normal);
           }
         }
       }
     }
-    return bestIntersection;
+    return bestResult;
   }
 
   // ==========================================
-  // 6. ADAPTIVE TOUCH DEPLOYMENT INFRASTRUCTURE
+  // 5. TOUCH HANDLERS & IMPLEMENTATION
   // ==========================================
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
     activeTouches[pointerId] = localPosition;
@@ -481,8 +509,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isUserInteractingWithBox = true;
 
       if (activeTouches.length >= 2) {
-        wasMultiTouchDuringGesture = true;
+        activeBuildingRay = null; // Clear single touch ray if multi-touch triggers
         _processMultiTouchIntersection(screenSize);
+      } else {
+        Ray ray = _castScreenRay(localPosition, screenSize);
+        IntersectionResult? res = _findRayIntersectionWithBox(ray);
+        if (res != null) {
+          setState(() {
+            activeBuildingRay = VisualRay(
+              pointerId: pointerId,
+              startPoint: res.point,
+              direction: -res.normal, // Points orthogonal into the container interior
+            );
+          });
+        }
       }
     }
   }
@@ -498,36 +538,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         cameraTheta -= delta.dx * 0.007;
         cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
+    } else if (activeBuildingRay != null && activeBuildingRay!.pointerId == pointerId && activeTouches.length == 1) {
+      // Track and update the sliding ray anchor point smoothly along nearest front walls
+      Ray ray = _castScreenRay(localPosition, screenSize);
+      IntersectionResult? res = _findRayIntersectionWithBox(ray);
+      if (res != null) {
+        setState(() {
+          activeBuildingRay = VisualRay(
+            pointerId: pointerId,
+            startPoint: res.point,
+            direction: -res.normal,
+            currentLength: activeBuildingRay!.currentLength,
+          );
+        });
+      }
     }
   }
 
   void _handleTouchUp(int pointerId, Size screenSize) {
     if (pointerId == cameraTrackingPointerId) {
       cameraTrackingPointerId = null;
-    } else if (isUserInteractingWithBox && !wasMultiTouchDuringGesture) {
-      // Fires depth ray exclusively during standalone single-finger triggers
-      Offset releasePoint = activeTouches[pointerId]!;
-      _processSingleTouchDepthRay(releasePoint, screenSize);
+    } else if (activeBuildingRay != null && activeBuildingRay!.pointerId == pointerId) {
+      setState(() {
+        // Execute the gravity explosion exactly at the far tip of the ray upon finger lifting
+        vm.Vector3 impulsePos = activeBuildingRay!.startPoint + (activeBuildingRay!.direction * activeBuildingRay!.currentLength);
+        activeImpulses.add(GravityImpulse(position: impulsePos));
+        activeBuildingRay = null;
+      });
     }
 
     activeTouches.remove(pointerId);
     if (activeTouches.isEmpty) {
       isUserInteractingWithBox = false;
-      wasMultiTouchDuringGesture = false; // Reset gesture lock clean
-    }
-  }
-
-  void _processSingleTouchDepthRay(Offset screenPoint, Size bounds) {
-    Ray ray = _castScreenRay(screenPoint, bounds);
-    vm.Vector3? intersect = _findRayIntersectionWithBox(ray);
-
-    if (intersect != null) {
-      setState(() {
-        vm.Vector3 targetDetonation = intersect * 0.65;
-        activeImpulses.add(GravityImpulse(position: targetDetonation));
-        // Interpolate laser line tracing from outer shell inward
-        activeRays.add(LaserRay(start: intersect, end: targetDetonation));
-      });
     }
   }
 
@@ -538,25 +580,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     Ray ray1 = _castScreenRay(activeTouches[keys[0]]!, bounds);
     Ray ray2 = _castScreenRay(activeTouches[keys[1]]!, bounds);
 
-    vm.Vector3? p1 = _findRayIntersectionWithBox(ray1);
-    vm.Vector3? p2 = _findRayIntersectionWithBox(ray2);
+    IntersectionResult? p1 = _findRayIntersectionWithBox(ray1);
+    IntersectionResult? p2 = _findRayIntersectionWithBox(ray2);
 
     if (p1 != null && p2 != null) {
-      vm.Vector3 lineVec = p2 - p1;
+      vm.Vector3 lineVec = p2.point - p1.point;
       double midpointFactor = lineVec.length * 0.5;
-      vm.Vector3 midPointIntersection = p1 + (lineVec.normalized() * midpointFactor);
+      vm.Vector3 midPointIntersection = p1.point + (lineVec.normalized() * midpointFactor);
 
       setState(() {
         activeImpulses.add(GravityImpulse(position: midPointIntersection));
-        // Map converging crosshair lines from both entrance faces to internal midpoint
-        activeRays.add(LaserRay(start: p1, end: midPointIntersection));
-        activeRays.add(LaserRay(start: p2, end: midPointIntersection));
       });
     }
   }
 
   // ==========================================
-  // 7. BUILD LAYOUT & SCENE GRAPH INTERACTION
+  // 6. BUILD LAYOUT
   // ==========================================
   @override
   Widget build(BuildContext context) {
@@ -577,9 +616,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 boxDimensions: boxDimensions,
                 particles: particles,
                 impulses: activeImpulses,
-                rays: activeRays,
                 cameraPosition: _computeCameraPosition(),
                 safeRadius: safeIncubationRadius,
+                buildingRay: activeBuildingRay,
               ),
             ),
           ),
@@ -588,12 +627,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             left: 20.0,
             child: Text(
               'SCORE: $currentScore',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-                color: Colors.white,
-              ),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.white),
             ),
           ),
           if (!isPlaying) _buildMenuOverlay(),
@@ -621,8 +655,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   'Herd particles away from the 4 long side walls.\n'
                   'Square ends wrap around continuously.\n\n'
                   '• Swipe Outskirts to rotate framework camera\n'
-                  '• Tap Box to cast a Single-Touch Depth Ray\n'
-                  '• Touch 2 faces to drop a Crosshair Intersection',
+                  '• Hold Box Face to charge an orthogonal depth ray\n'
+                  '• Release Finger to trigger an impulse at the ray tip\n'
+                  '• Touch 2 front faces to drop an immediate midpoint crosshair',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
                 ),
@@ -654,24 +689,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 }
 
 // ==========================================
-// 8. GRAPHICS PIPELINE & MATH PAINTER
+// 7. GRAPHICS PIPELINE & MATH PAINTER
 // ==========================================
 
 class Scene3DPainter extends CustomPainter {
   final vm.Vector3 boxDimensions;
   final List<Particle3D> particles;
   final List<GravityImpulse> impulses;
-  final List<LaserRay> rays;
   final vm.Vector3 cameraPosition;
   final double safeRadius;
+  final VisualRay? buildingRay;
 
   Scene3DPainter({
     required this.boxDimensions,
     required this.particles,
     required this.impulses,
-    required this.rays,
     required this.cameraPosition,
     required this.safeRadius,
+    this.buildingRay,
   });
 
   @override
@@ -684,7 +719,7 @@ class Scene3DPainter extends CustomPainter {
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
-    _drawLaserRays(canvas, size, vpMatrix);
+    _drawBuildingRay(canvas, size, vpMatrix);
     _drawGravityImpulses(canvas, size, vpMatrix);
     _drawParticles(canvas, size, vpMatrix);
   }
@@ -692,9 +727,7 @@ class Scene3DPainter extends CustomPainter {
   Offset? _projectPoint(vm.Vector3 point, Size size, vm.Matrix4 vpMatrix) {
     vm.Vector4 pos4 = vm.Vector4(point.x, point.y, point.z, 1.0);
     vm.Vector4 projected = vpMatrix * pos4;
-
     if (projected.w <= 0) return null;
-
     double x = (projected.x / projected.w + 1.0) * size.width / 2.0;
     double y = (1.0 - projected.y / projected.w) * size.height / 2.0;
     return Offset(x, y);
@@ -730,10 +763,8 @@ class Scene3DPainter extends CustomPainter {
 
       if (p1 != null && p2 != null) {
         double averageDepth = (vertices[edge[0]].z + vertices[edge[1]].z) / (hZ * 2) + 0.5;
-        
         edgePaint.color = Colors.cyan.withOpacity(math.max(0.15, 1.0 - averageDepth));
         edgePaint.strokeWidth = math.max(1.0, 3.5 * (1.0 - averageDepth));
-
         canvas.drawLine(p1, p2, edgePaint);
       }
     }
@@ -761,65 +792,34 @@ class Scene3DPainter extends CustomPainter {
     }
   }
 
-  void _drawLaserRays(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
-    for (var ray in rays) {
-      Offset? pStart = _projectPoint(ray.start, size, vpMatrix);
-      Offset? pEnd = _projectPoint(ray.end, size, vpMatrix);
-      
-      if (pStart != null && pEnd != null) {
-        double progress = ray.getProgress();
-        
-        // Outer energy beam styling
-        final beamPaint = Paint()
-          ..color = Colors.cyan.withOpacity((1.0 - progress) * 0.7)
-          ..strokeWidth = 4.0 * (1.0 - progress)
-          ..style = PaintingStyle.stroke;
-        canvas.drawLine(pStart, pEnd, beamPaint);
+  void _drawBuildingRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+    if (buildingRay == null) return;
 
-        // Core high-intensity neon laser line
-        final corePaint = Paint()
-          ..color = Colors.white.withOpacity(1.0 - progress)
-          ..strokeWidth = 1.2 * (1.0 - progress)
-          ..style = PaintingStyle.stroke;
-        canvas.drawLine(pStart, pEnd, corePaint);
-      }
-    }
-  }
+    vm.Vector3 start = buildingRay!.startPoint;
+    vm.Vector3 end = start + (buildingRay!.direction * buildingRay!.currentLength);
 
-  void _drawGravityImpulses(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
-    for (var impulse in impulses) {
-      Offset? screenPos = _projectPoint(impulse.position, size, vpMatrix);
-      if (screenPos == null) continue;
+    Offset? pStart = _projectPoint(start, size, vpMatrix);
+    Offset? pEnd = _projectPoint(end, size, vpMatrix);
 
-      double progress = impulse.getProgress();
-      
-      // Extract identical distance matrices to force accurate 3D perspective sizing
-      double distanceToCam = (cameraPosition - impulse.position).length;
-      double depthScale = (450.0 / distanceToCam).clamp(0.3, 3.0);
+    if (pStart != null && pEnd != null) {
+      // Draw growing structural projection vector
+      final Paint linePaint = Paint()
+        ..color = Colors.amberAccent.withOpacity(0.8)
+        ..strokeWidth = 3.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(pStart, pEnd, linePaint);
 
-      // Translate native world dimension bounds cleanly into screen pixel space
-      double calculatedRadius = (impulse.maxRadius * progress) * depthScale * 0.35;
+      // Draw active head node tracking circle
+      final Paint terminalNodePaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pEnd, 4.5, terminalNodePaint);
 
-      final Paint pulsePaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5 * (1.0 - progress)
-        ..color = Colors.greenAccent.withOpacity(1.0 - progress)
-        ..blendMode = BlendMode.plus;
-
-      // Primary shockwave shell ring
-      canvas.drawCircle(screenPos, calculatedRadius, pulsePaint);
-
-      // Secondary nested wave ring
-      if (progress > 0.15) {
-        pulsePaint.strokeWidth = 1.5 * (1.0 - progress);
-        canvas.drawCircle(screenPos, calculatedRadius * 0.55, pulsePaint);
-      }
-
-      // High-intensity white core point detonation trace
-      final Paint coreFlash = Paint()
-        ..style = PaintingStyle.fill
-        ..color = Colors.white.withOpacity((1.0 - progress).clamp(0.0, 1.0));
-      canvas.drawCircle(screenPos, 4.0 * depthScale * (1.0 - progress), coreFlash);
+      // Flare effect circle at origin shell
+      final Paint basePaint = Paint()
+        ..color = Colors.amberAccent.withOpacity(0.3)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pStart, 6.0, basePaint);
     }
   }
 
@@ -853,6 +853,23 @@ class Scene3DPainter extends CustomPainter {
           canvas.drawCircle(ghostScreenPos, finalRadius * 0.8, ghostPaint);
         }
       }
+    }
+  }
+
+  void _drawGravityImpulses(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+    final Paint pulsePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    for (var impulse in impulses) {
+      Offset? screenPos = _projectPoint(impulse.position, size, vpMatrix);
+      if (screenPos == null) continue;
+
+      double progress = impulse.getProgress();
+      double radius = impulse.maxRadius * progress;
+
+      pulsePaint.color = Colors.white.withOpacity(1.0 - progress);
+      canvas.drawCircle(screenPos, radius, pulsePaint);
     }
   }
 
