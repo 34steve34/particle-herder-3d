@@ -224,7 +224,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  double cameraRadius = 400.0;
   double cameraTheta = 0.78; 
   double cameraPhi = 1.2;    
   
@@ -323,6 +322,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     particles.add(p);
   }
 
+  // Calculates camera distance dynamically based on aspect ratios so the box targets an 80% footprint
+  double _getAdaptiveCameraRadius(Size size) {
+    double aspect = size.width / size.height;
+    if (aspect < 1.0) {
+      // Portrait mobile setups require pulling back gracefully to frame width restrictions
+      return 290.0 / aspect; 
+    } else {
+      // Desktop and landscape standard scales
+      return 350.0;
+    }
+  }
+
+  vm.Vector3 _computeCameraPosition(Size size) {
+    double radius = _getAdaptiveCameraRadius(size);
+    double x = radius * math.sin(cameraPhi) * math.cos(cameraTheta);
+    double y = radius * math.cos(cameraPhi);
+    double z = radius * math.sin(cameraPhi) * math.sin(cameraTheta);
+    return vm.Vector3(x, y, z);
+  }
+
   // ==========================================
   // 4. CORE ENGINE LOOP
   // ==========================================
@@ -384,7 +403,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
-        // FIXED: Replaced vm.Vector3.lerp with standard explicit vector arithmetic 
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
@@ -399,7 +417,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             vm.Vector3 targetVelocity = headingToImpulse * originalSpeed;
             double t = pullFactor * 1.6 * dt;
             
-            // Explicit Vector Linear Interpolation: Current + (Target - Current) * t
             p.velocity = p.velocity + (targetVelocity - p.velocity) * t;
           }
         }
@@ -419,15 +436,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ==========================================
   // 5. SCREENRAY INTERPOLATION & CALIBRATION
   // ==========================================
-  vm.Vector3 _computeCameraPosition() {
-    double x = cameraRadius * math.sin(cameraPhi) * math.cos(cameraTheta);
-    double y = cameraRadius * math.cos(cameraPhi);
-    double z = cameraRadius * math.sin(cameraPhi) * math.sin(cameraTheta);
-    return vm.Vector3(x, y, z);
-  }
-
   Ray _castScreenRay(Offset touchPoint, Size widgetBounds) {
-    vm.Vector3 camPos = _computeCameraPosition();
+    vm.Vector3 camPos = _computeCameraPosition(widgetBounds);
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
@@ -493,33 +503,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
     activeTouches[pointerId] = localPosition;
 
-    double marginX = screenSize.width * 0.15;
-    double marginY = screenSize.height * 0.15;
-    bool insideOutskirtsZone = localPosition.dx < marginX || 
-                               localPosition.dx > screenSize.width - marginX ||
-                               localPosition.dy < marginY || 
-                               localPosition.dy > screenSize.height - marginY;
-
-    if (insideOutskirtsZone && cameraTrackingPointerId == null) {
-      cameraTrackingPointerId = pointerId;
-    } else if (!insideOutskirtsZone) {
-      isUserInteractingWithBox = true;
-
-      if (activeTouches.length >= 2) {
-        activeGrowingRay = null;
-        _processMultiTouchIntersection(screenSize);
+    if (activeTouches.length >= 2) {
+      activeGrowingRay = null;
+      _processMultiTouchIntersection(screenSize);
+    } else {
+      // Direct mesh hit detection replaces arbitrary 2D margin variables
+      Ray ray = _castScreenRay(localPosition, screenSize);
+      vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
+      
+      if (entryPoint != null) {
+        isUserInteractingWithBox = true;
+        setState(() {
+          activeGrowingRay = GrowingRay(
+            pointerId: pointerId,
+            origin: ray.origin,
+            direction: ray.direction,
+            entryPoint: entryPoint,
+          );
+        });
       } else {
-        Ray ray = _castScreenRay(localPosition, screenSize);
-        vm.Vector3? entryPoint = _findRayIntersectionWithBox(ray);
-        if (entryPoint != null) {
-          setState(() {
-            activeGrowingRay = GrowingRay(
-              pointerId: pointerId,
-              origin: ray.origin,
-              direction: ray.direction,
-              entryPoint: entryPoint,
-            );
-          });
+        // If the tap misses the 3D container, designate this finger to drag/orbit camera viewpoint
+        if (cameraTrackingPointerId == null) {
+          cameraTrackingPointerId = pointerId;
         }
       }
     }
@@ -630,7 +635,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 boxDimensions: boxDimensions,
                 particles: particles,
                 impulses: activeImpulses,
-                cameraPosition: _computeCameraPosition(),
+                cameraPosition: _computeCameraPosition(screenSize),
                 safeRadius: safeIncubationRadius,
                 activeRay: activeGrowingRay, 
               ),
@@ -675,10 +680,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 child: Text(
                   'Herd particles away from the 4 long side walls.\n'
                   'Square ends wrap around continuously.\n\n'
-                  '• Swipe Outskirts to rotate framework camera\n'
-                  '• Hold Box to view a growing Linear Depth Ray\n'
-                  '• Release to drop a Gentle Steering Impulse at its tip\n'
-                  '• Touch 2 faces to drop a Crosshair Intersection',
+                  '• Drag Empty space around the container to rotate view\n'
+                  '• Press & Hold inside the 3D box to extend a Linear Depth Ray\n'
+                  '• Release to fire a Steering Gravity Impulse at its tip\n'
+                  '• Touch 2 separate sides together to drop an intersection point',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
                 ),
@@ -756,7 +761,6 @@ class Scene3DPainter extends CustomPainter {
     return Offset(x, y);
   }
 
-  // FIXED: Replaced Colors.magentaAccent with accurate hex construction parameters
   void _drawGrowingDepthRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     if (activeRay == null) return;
 
