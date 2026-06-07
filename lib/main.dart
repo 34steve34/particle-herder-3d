@@ -69,12 +69,13 @@ class VisualRay {
   final vm.Vector3 startPoint;
   final vm.Vector3 direction;
   double currentLength;
-  final double growthSpeed = 380.0; // Units per second
+  final double growthSpeed;
 
   VisualRay({
     required this.pointerId,
     required this.startPoint,
     required this.direction,
+    required this.growthSpeed,
     this.currentLength = 0.0,
   });
 }
@@ -214,6 +215,16 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+  // ======================================================================
+  // GLOBAL BALANCING TUNING VARIABLES
+  // ======================================================================
+  static const double impulsePullStrength = 220.0;    // Adjust to dial in directional steering influence
+  static const double singleRayGrowthSpeed = 126.67;   // Slowed down 3x (380.0 / 3)
+  static const double speedLimitMultiplierX = 4.0;    // Halved from 8.0
+  static const double speedLimitMultiplierY = 4.0;    // Halved from 8.0
+  static const double speedLimitMultiplierZ = 6.0;    // Halved from 12.0
+  // ======================================================================
+
   final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0);
   final double safeIncubationRadius = 25.0;
 
@@ -223,6 +234,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   List<Particle3D> particles = [];
   List<GravityImpulse> activeImpulses = [];
   VisualRay? activeBuildingRay;
+  List<VisualRay> activeMultiTouchRays = [];
 
   late Timer gameTimer;
   late Timer spawnTimer;
@@ -281,6 +293,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       particles.clear();
       activeImpulses.clear();
       activeBuildingRay = null;
+      activeMultiTouchRays.clear();
       currentScore = 0;
       elapsedMilliseconds = 0;
       isPlaying = true;
@@ -316,9 +329,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _spawnParticle() {
     final initialVel = vm.Vector3(
-      (math.Random().nextDouble() * 2 - 1) * 8,
-      (math.Random().nextDouble() * 2 - 1) * 8,
-      (math.Random().nextDouble() * 2 - 1) * 12,
+      (math.Random().nextDouble() * 2 - 1) * speedLimitMultiplierX,
+      (math.Random().nextDouble() * 2 - 1) * speedLimitMultiplierY,
+      (math.Random().nextDouble() * 2 - 1) * speedLimitMultiplierZ,
     );
     
     final p = Particle3D(
@@ -399,12 +412,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
-            double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
+            double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * impulsePullStrength;
             p.velocity += forceDirection * pullIntensity * dt;
           }
         }
 
-        // absolute velocity normalization protection shield
+        // Absolute velocity protection shield: prevents unwanted acceleration cascades
         if (p.velocity.length2 > 1e-6) {
           p.velocity = p.velocity.normalized() * p.initialSpeed;
         }
@@ -473,7 +486,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     double closestDistance = double.infinity;
 
     for (var plane in planes) {
-      // FRONT FACES FILTER: Outward normal dot Ray direction must be negative to hit exterior front shells
       if (plane.normal.dot(ray.direction) >= 0) continue;
 
       vm.Vector3? pt = plane.intersectRay(ray);
@@ -509,7 +521,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isUserInteractingWithBox = true;
 
       if (activeTouches.length >= 2) {
-        activeBuildingRay = null; // Clear single touch ray if multi-touch triggers
+        activeBuildingRay = null; 
         _processMultiTouchIntersection(screenSize);
       } else {
         Ray ray = _castScreenRay(localPosition, screenSize);
@@ -519,7 +531,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             activeBuildingRay = VisualRay(
               pointerId: pointerId,
               startPoint: res.point,
-              direction: -res.normal, // Points orthogonal into the container interior
+              direction: -res.normal,
+              growthSpeed: singleRayGrowthSpeed,
             );
           });
         }
@@ -538,19 +551,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         cameraTheta -= delta.dx * 0.007;
         cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
-    } else if (activeBuildingRay != null && activeBuildingRay!.pointerId == pointerId && activeTouches.length == 1) {
-      // Track and update the sliding ray anchor point smoothly along nearest front walls
-      Ray ray = _castScreenRay(localPosition, screenSize);
-      IntersectionResult? res = _findRayIntersectionWithBox(ray);
-      if (res != null) {
-        setState(() {
-          activeBuildingRay = VisualRay(
-            pointerId: pointerId,
-            startPoint: res.point,
-            direction: -res.normal,
-            currentLength: activeBuildingRay!.currentLength,
-          );
-        });
+    } else {
+      if (activeTouches.length >= 2) {
+        _processMultiTouchIntersection(screenSize);
+      } else if (activeBuildingRay != null && activeBuildingRay!.pointerId == pointerId) {
+        Ray ray = _castScreenRay(localPosition, screenSize);
+        IntersectionResult? res = _findRayIntersectionWithBox(ray);
+        if (res != null) {
+          setState(() {
+            activeBuildingRay = VisualRay(
+              pointerId: pointerId,
+              startPoint: res.point,
+              direction: -res.normal,
+              growthSpeed: singleRayGrowthSpeed,
+              currentLength: activeBuildingRay!.currentLength,
+            );
+          });
+        }
       }
     }
   }
@@ -560,7 +577,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       cameraTrackingPointerId = null;
     } else if (activeBuildingRay != null && activeBuildingRay!.pointerId == pointerId) {
       setState(() {
-        // Execute the gravity explosion exactly at the far tip of the ray upon finger lifting
         vm.Vector3 impulsePos = activeBuildingRay!.startPoint + (activeBuildingRay!.direction * activeBuildingRay!.currentLength);
         activeImpulses.add(GravityImpulse(position: impulsePos));
         activeBuildingRay = null;
@@ -568,6 +584,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
 
     activeTouches.remove(pointerId);
+    if (activeTouches.length < 2) {
+      setState(() {
+        activeMultiTouchRays.clear();
+      });
+    }
     if (activeTouches.isEmpty) {
       isUserInteractingWithBox = false;
     }
@@ -589,7 +610,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       vm.Vector3 midPointIntersection = p1.point + (lineVec.normalized() * midpointFactor);
 
       setState(() {
-        activeImpulses.add(GravityImpulse(position: midPointIntersection));
+        activeMultiTouchRays = [
+          VisualRay(pointerId: keys[0], startPoint: p1.point, direction: -p1.normal, growthSpeed: 0.0, currentLength: 60.0),
+          VisualRay(pointerId: keys[1], startPoint: p2.point, direction: -p2.normal, growthSpeed: 0.0, currentLength: 60.0)
+        ];
+
+        // Trigger immediate placement reference node explosion
+        if (activeImpulses.isEmpty || (activeImpulses.last.position - midPointIntersection).length > 10.0) {
+          activeImpulses.add(GravityImpulse(position: midPointIntersection));
+        }
       });
     }
   }
@@ -619,6 +648,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 cameraPosition: _computeCameraPosition(),
                 safeRadius: safeIncubationRadius,
                 buildingRay: activeBuildingRay,
+                multiTouchRays: activeMultiTouchRays,
               ),
             ),
           ),
@@ -657,7 +687,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   '• Swipe Outskirts to rotate framework camera\n'
                   '• Hold Box Face to charge an orthogonal depth ray\n'
                   '• Release Finger to trigger an impulse at the ray tip\n'
-                  '• Touch 2 front faces to drop an immediate midpoint crosshair',
+                  '• Touch 2 front faces to see orthogonal projection indicators',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
                 ),
@@ -699,6 +729,7 @@ class Scene3DPainter extends CustomPainter {
   final vm.Vector3 cameraPosition;
   final double safeRadius;
   final VisualRay? buildingRay;
+  final List<VisualRay> multiTouchRays;
 
   Scene3DPainter({
     required this.boxDimensions,
@@ -707,6 +738,7 @@ class Scene3DPainter extends CustomPainter {
     required this.cameraPosition,
     required this.safeRadius,
     this.buildingRay,
+    required this.multiTouchRays,
   });
 
   @override
@@ -720,6 +752,7 @@ class Scene3DPainter extends CustomPainter {
 
     _drawBoundingBox(canvas, size, vpMatrix);
     _drawBuildingRay(canvas, size, vpMatrix);
+    _drawMultiTouchIndicators(canvas, size, vpMatrix);
     _drawGravityImpulses(canvas, size, vpMatrix);
     _drawParticles(canvas, size, vpMatrix);
   }
@@ -802,24 +835,60 @@ class Scene3DPainter extends CustomPainter {
     Offset? pEnd = _projectPoint(end, size, vpMatrix);
 
     if (pStart != null && pEnd != null) {
-      // Draw growing structural projection vector
       final Paint linePaint = Paint()
         ..color = Colors.amberAccent.withOpacity(0.8)
         ..strokeWidth = 3.0
         ..style = PaintingStyle.stroke;
       canvas.drawLine(pStart, pEnd, linePaint);
 
-      // Draw active head node tracking circle
       final Paint terminalNodePaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pEnd, 4.5, terminalNodePaint);
 
-      // Flare effect circle at origin shell
       final Paint basePaint = Paint()
         ..color = Colors.amberAccent.withOpacity(0.3)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pStart, 6.0, basePaint);
+    }
+  }
+
+  void _drawMultiTouchIndicators(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+    if (multiTouchRays.length < 2) return;
+
+    final Paint linePaint = Paint()
+      ..color = Colors.magentaAccent.withOpacity(0.7)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke;
+
+    final Paint nodePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    // Draw both orthogonal lines penetrating inside the space volume
+    for (var ray in multiTouchRays) {
+      vm.Vector3 start = ray.startPoint;
+      vm.Vector3 end = start + (ray.direction * ray.currentLength);
+
+      Offset? pStart = _projectPoint(start, size, vpMatrix);
+      Offset? pEnd = _projectPoint(end, size, vpMatrix);
+
+      if (pStart != null && pEnd != null) {
+        canvas.drawLine(pStart, pEnd, linePaint);
+        canvas.drawCircle(pStart, 5.5, nodePaint);
+      }
+    }
+
+    // Draw the spatial registration bridge vector linking both points
+    Offset? bridgeStart = _projectPoint(multiTouchRays[0].startPoint, size, vpMatrix);
+    Offset? bridgeEnd = _projectPoint(multiTouchRays[1].startPoint, size, vpMatrix);
+    
+    if (bridgeStart != null && bridgeEnd != null) {
+      final Paint bridgePaint = Paint()
+        ..color = Colors.purpleAccent.withOpacity(0.4)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(bridgeStart, bridgeEnd, bridgePaint);
     }
   }
 
