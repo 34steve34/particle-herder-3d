@@ -857,7 +857,7 @@ class Scene3DPainter extends CustomPainter {
     if (multiTouchRays.length < 2) return;
 
     final Paint linePaint = Paint()
-      ..color = Colors.magentaAccent.withOpacity(0.7)
+      ..color = const Color(0xFFFF00FF).withOpacity(0.7) // Fixed: Direct Hex pure Magenta
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
