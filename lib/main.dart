@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:ui' as ui; // Fixed: Explicit low-level canvas shader access
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
@@ -541,7 +542,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     } else if (pointerId == activeRayPointerId) {
       // Release action drops impulse cleanly at current colored tip marker
       if (activeRayStart != null && activeRayEnd != null) {
-        vm.Vector3 finalDropPoint = vm.Vector3.lerp(activeRayStart!, activeRayEnd!, activeRayProgress)!;
+        // Fixed Vector3.lerp compile error by applying native algebraic operators
+        vm.Vector3 finalDropPoint = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
         setState(() {
           activeImpulses.add(GravityImpulse(position: finalDropPoint));
         });
@@ -743,7 +745,8 @@ class Scene3DPainter extends CustomPainter {
     Offset? pStart = _projectPoint(activeRayStart!, size, vpMatrix);
     Offset? pEnd = _projectPoint(activeRayEnd!, size, vpMatrix);
 
-    vm.Vector3 currentTipVec = vm.Vector3.lerp(activeRayStart!, activeRayEnd!, activeRayProgress)!;
+    // Fixed Vector3.lerp compile error by applying native algebraic operators
+    vm.Vector3 currentTipVec = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
     Offset? pTip = _projectPoint(currentTipVec, size, vpMatrix);
 
     if (pStart != null && pEnd != null && pTip != null) {
@@ -768,7 +771,8 @@ class Scene3DPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5
         ..isAntiAlias = true
-        ..shader = Gradient.linear(pStart, pEnd, spectrumColors);
+        // Fixed Gradient.linear compile error by calling low-level canvas ui library
+        ..shader = ui.Gradient.linear(pStart, pEnd, spectrumColors);
 
       // Render ray path leading up to current growth tip
       canvas.drawLine(pStart, pTip, rayPaint);
