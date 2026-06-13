@@ -357,8 +357,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
 
         if (p.state == ParticleState.active) {
-          vm.Vector3 accelerationDirection = p.velocity.normalized();
-          p.velocity += accelerationDirection * (distanceToCenter * 0.09) * dt;
+          // Strictly apply constant velocity. No centrifugal ghost acceleration.
           p.position += p.velocity * dt;
 
           double threatFactor = (p.position.xy.length / halfX).clamp(0.0, 1.0);
@@ -586,6 +585,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ),
 
+          // Cache-busting Version Indicator
+          const Positioned(
+            top: 10.0,
+            left: 10.0,
+            child: Text(
+              'v2.7.0-STRICT-PHYSICS',
+              style: TextStyle(
+                color: Colors.cyanAccent,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+
           Positioned(
             top: 40.0,
             left: 20.0,
@@ -725,7 +739,7 @@ class Scene3DPainter extends CustomPainter {
         Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
       ];
 
-      // Fixed/Enhanced: Added a transparent white background vector line core.
+      // Added a transparent white background vector line core.
       // This guarantees visibility even if individual browser canvas layers delay shader rendering.
       final Paint clearFallbackPaint = Paint()
         ..color = Colors.white.withOpacity(0.35)
