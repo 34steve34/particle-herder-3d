@@ -603,7 +603,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.0-STRICT-PHYSICS',
+              'v2.7.1-STRICT-PHYSICS',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
