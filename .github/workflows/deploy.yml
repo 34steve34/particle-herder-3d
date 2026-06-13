@@ -30,7 +30,7 @@ jobs:
       # 4. Compile Dart into an optimized, web-ready PWA framework
       # UPDATE THE BASE-HREF BELOW TO MATCH YOUR EXACT GITHUB REPOSITORY NAME
       - name: Build Web App
-        run: flutter build web --release --base-href /particle-herder-3d/
+        run: flutter build web --release --base-href /particle-herder-3d/ --no-wasm-dry-run
 
       # 5. Push the compiled asset bundle directly to the 'gh-pages' hosting branch
       - name: Deploy to GitHub Pages
