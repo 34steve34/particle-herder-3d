@@ -377,10 +377,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           double currentRadius = impulse.maxRadius * impulse.getProgress();
           
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
+            double originalSpeed = p.velocity.length;
+            
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
             double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
+            
             p.velocity += forceDirection * pullIntensity * dt;
+            
+            // Restore original speed magnitude - only direction changes
+            p.velocity.normalize();
+            p.velocity *= originalSpeed;
           }
         }
 
