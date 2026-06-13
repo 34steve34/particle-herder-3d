@@ -219,8 +219,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
-  double autoRotateSpeedTheta = 0.15;
-  double autoRotateSpeedPhi = 0.08;
+  double autoRotateSpeedTheta = 0.12;
+  double autoRotateSpeedPhi = 0.05;
   bool isUserInteractingWithBox = false;
 
   Map<int, Offset> activeTouches = {};
@@ -307,9 +307,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 12,
+        (math.Random().nextDouble() * 2 - 1) * 5,
+        (math.Random().nextDouble() * 2 - 1) * 5,
+        (math.Random().nextDouble() * 2 - 1) * 9,
       ),
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
@@ -471,8 +471,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
-    activeTouches[pointerId] = localPosition;
-
     double marginX = screenSize.width * 0.15;
     double marginY = screenSize.height * 0.15;
     bool insideOutskirtsZone = localPosition.dx < marginX || 
@@ -482,10 +480,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (insideOutskirtsZone && cameraTrackingPointerId == null) {
       cameraTrackingPointerId = pointerId;
+      activeTouches[pointerId] = localPosition;
     } else if (!insideOutskirtsZone) {
       isUserInteractingWithBox = true;
 
-      if (activeTouches.length == 1) {
+      if (activeTouches.isEmpty) {
+        // First touch - create ray
         Ray ray = _castScreenRay(localPosition, screenSize);
         List<vm.Vector3> targets = _findRayBoxIntersections(ray);
         if (targets.length >= 2) {
@@ -496,7 +496,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             activeRayPointerId = pointerId;
           });
         }
-      } else if (activeTouches.length >= 2) {
+      } else if (activeTouches.length >= 1) {
+        // Second (or more) touch - trigger multi-touch intersection
         setState(() {
           activeRayStart = null;
           activeRayEnd = null;
@@ -504,6 +505,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         });
         _processMultiTouchIntersection(screenSize);
       }
+      
+      activeTouches[pointerId] = localPosition;
     }
   }
 
