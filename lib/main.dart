@@ -484,7 +484,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     } else if (!insideOutskirtsZone) {
       isUserInteractingWithBox = true;
 
-      if (activeTouches.isEmpty) {
+      bool wasEmpty = activeTouches.isEmpty;
+      activeTouches[pointerId] = localPosition;
+
+      if (wasEmpty) {
         // First touch - create ray
         Ray ray = _castScreenRay(localPosition, screenSize);
         List<vm.Vector3> targets = _findRayBoxIntersections(ray);
@@ -496,7 +499,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             activeRayPointerId = pointerId;
           });
         }
-      } else if (activeTouches.length >= 1) {
+      } else {
         // Second (or more) touch - trigger multi-touch intersection
         setState(() {
           activeRayStart = null;
@@ -505,8 +508,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         });
         _processMultiTouchIntersection(screenSize);
       }
-      
-      activeTouches[pointerId] = localPosition;
     }
   }
 
