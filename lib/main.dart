@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'dart:async';
-import 'dart:ui' as ui; // Fixed: Explicit low-level canvas shader access
+import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
@@ -63,7 +63,6 @@ class GravityImpulse {
   }
 }
 
-/// A bounding box defining spatial limits
 class AABB {
   final vm.Vector3 min;
   final vm.Vector3 max;
@@ -82,7 +81,6 @@ class AABB {
   }
 }
 
-/// Natively implemented 3D Octree for efficient spatial partitioning
 class Octree {
   final AABB boundary;
   final int capacity;
@@ -174,9 +172,9 @@ class Plane3D {
     if (denom.abs() > 1e-6) {
       vm.Vector3 p0minusO = point - ray.origin;
       double t = p0minusO.dot(normal) / denom;
-      if (t >= 0) {
-        return ray.origin + (ray.direction * t);
-      }
+      // Fixed: Removed "t >= 0" check to treat this as an infinite line pierce.
+      // This protects calculations from platform depth-sign flips on Web builds.
+      return ray.origin + (ray.direction * t);
     }
     return null;
   }
@@ -194,40 +192,33 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
-  // Game dimensions
-  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0); // Z is the long dimension
+  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0);
   final double safeIncubationRadius = 25.0;
 
-  // Game state
   bool isPlaying = false;
   int currentScore = 0;
   List<int> highScores = [];
   List<Particle3D> particles = [];
   List<GravityImpulse> activeImpulses = [];
 
-  // Active Spectrum Depth Ray state variables
   vm.Vector3? activeRayStart;
   vm.Vector3? activeRayEnd;
   double activeRayProgress = 0.0;
   int? activeRayPointerId;
 
-  // Pacing
   late Timer gameTimer;
   late Timer spawnTimer;
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  // Camera Coordinate Tracing (Spherical coordinates)
   double cameraRadius = 400.0;
-  double cameraTheta = 0.78; // Azimuthal rotation angle
-  double cameraPhi = 1.2;    // Polar angle
+  double cameraTheta = 0.78;
+  double cameraPhi = 1.2;
   
-  // Anti-Cheat Autonomous Rotational Drift
   double autoRotateSpeedTheta = 0.15;
   double autoRotateSpeedPhi = 0.08;
   bool isUserInteractingWithBox = false;
 
-  // Multi-Touch Input Mapping tracker
   Map<int, Offset> activeTouches = {};
   int? cameraTrackingPointerId;
 
@@ -279,8 +270,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       elapsedMilliseconds = 0;
       isPlaying = true;
       gameStartTime = DateTime.now();
-      
-      // Seed first particle
       _spawnParticle();
     });
 
@@ -324,23 +313,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     particles.add(p);
   }
 
-  // ==========================================
-  // 4. CORE ENGINE LOOP
-  // ==========================================
   void _updatePhysicsLoop() {
     if (!isPlaying) return;
 
-    double dt = 0.016; // Stable DeltaTime baseline (~60FPS)
+    double dt = 0.016;
 
-    // Advance active depth-ray compilation over time
     if (activeRayStart != null) {
       setState(() {
-        activeRayProgress += dt * 1.8; // Reaches opposite wall in ~0.55s
+        activeRayProgress += dt * 1.8;
         if (activeRayProgress > 1.0) activeRayProgress = 1.0;
       });
     }
 
-    // Apply continuous camera auto-drift anti-cheat if no active interaction is ongoing
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
@@ -409,9 +393,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     });
   }
 
-  // ==========================================
-  // 5. SCREENRAY INTERPOLATION & CALIBRATION
-  // ==========================================
   vm.Vector3 _computeCameraPosition() {
     double x = cameraRadius * math.sin(cameraPhi) * math.cos(cameraTheta);
     double y = cameraRadius * math.cos(cameraPhi);
@@ -426,7 +407,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
     vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
-    vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix..multiply(viewMatrix))..invert();
+    // Clean matrix allocation order:
+    vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix * viewMatrix)..invert();
 
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
     double ndcY = 1.0 - (touchPoint.dy / widgetBounds.height) * 2.0;
@@ -446,7 +428,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Ray(rayOrigin, rayDirection);
   }
 
-  /// Natively gathers both entry and exit vector intersections with the box framework
   List<vm.Vector3> _findRayBoxIntersections(Ray ray) {
     double halfX = boxDimensions.x / 2;
     double halfY = boxDimensions.y / 2;
@@ -475,14 +456,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (crossPoints.length >= 2) {
       crossPoints.sort((a, b) => a.value.compareTo(b.value));
-      return [crossPoints.first.key, crossPoints.last.key]; // Returns entry [0] and exit [1]
+      return [crossPoints.first.key, crossPoints.last.key];
     }
     return crossPoints.map((e) => e.key).toList();
   }
 
-  // ==========================================
-  // 6. ADAPTIVE TOUCH DEPLOYMENT INFRASTRUCTURE
-  // ==========================================
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
     activeTouches[pointerId] = localPosition;
 
@@ -499,7 +477,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isUserInteractingWithBox = true;
 
       if (activeTouches.length == 1) {
-        // Single-Touch: Trigger advanced color depth ray tracking profiles
         Ray ray = _castScreenRay(localPosition, screenSize);
         List<vm.Vector3> targets = _findRayBoxIntersections(ray);
         if (targets.length >= 2) {
@@ -511,7 +488,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           });
         }
       } else if (activeTouches.length >= 2) {
-        // Disengage tactical single ray if dual-finger action is validated
         setState(() {
           activeRayStart = null;
           activeRayEnd = null;
@@ -540,9 +516,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (pointerId == cameraTrackingPointerId) {
       cameraTrackingPointerId = null;
     } else if (pointerId == activeRayPointerId) {
-      // Release action drops impulse cleanly at current colored tip marker
       if (activeRayStart != null && activeRayEnd != null) {
-        // Fixed Vector3.lerp compile error by applying native algebraic operators
         vm.Vector3 finalDropPoint = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
         setState(() {
           activeImpulses.add(GravityImpulse(position: finalDropPoint));
@@ -584,9 +558,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ==========================================
-  // 7. BUILD LAYOUT & SCENE GRAPH INTERACTION
-  // ==========================================
   @override
   Widget build(BuildContext context) {
     final Size screenSize = MediaQuery.of(context).size;
@@ -697,7 +668,6 @@ class Scene3DPainter extends CustomPainter {
   final vm.Vector3 cameraPosition;
   final double safeRadius;
 
-  // Active targeting parameters passed directly into canvas graphics pipeline
   final vm.Vector3? activeRayStart;
   final vm.Vector3? activeRayEnd;
   final double activeRayProgress;
@@ -745,43 +715,42 @@ class Scene3DPainter extends CustomPainter {
     Offset? pStart = _projectPoint(activeRayStart!, size, vpMatrix);
     Offset? pEnd = _projectPoint(activeRayEnd!, size, vpMatrix);
 
-    // Fixed Vector3.lerp compile error by applying native algebraic operators
     vm.Vector3 currentTipVec = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
     Offset? pTip = _projectPoint(currentTipVec, size, vpMatrix);
 
     if (pStart != null && pEnd != null && pTip != null) {
-      // Mirror gradient compilation: Red -> Rainbow -> Violet (Center) -> Rainbow -> Red
       final List<Color> spectrumColors = [
-        Colors.red,
-        Colors.orange,
-        Colors.yellow,
-        Colors.green,
-        Colors.blue,
-        Colors.indigo,
-        Colors.purple, // Violet marker directly representing midpoint center alignment
-        Colors.indigo,
-        Colors.blue,
-        Colors.green,
-        Colors.yellow,
-        Colors.orange,
-        Colors.red,
+        Colors.red, Colors.orange, Colors.yellow, Colors.green,
+        Colors.blue, Colors.indigo, Colors.purple, Colors.indigo,
+        Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
       ];
+
+      // Fixed/Enhanced: Added a transparent white background vector line core.
+      // This guarantees visibility even if individual browser canvas layers delay shader rendering.
+      final Paint clearFallbackPaint = Paint()
+        ..color = Colors.white.withOpacity(0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5;
+      canvas.drawLine(pStart, pTip, clearFallbackPaint);
 
       final Paint rayPaint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5
+        ..strokeWidth = 4.0
         ..isAntiAlias = true
-        // Fixed Gradient.linear compile error by calling low-level canvas ui library
         ..shader = ui.Gradient.linear(pStart, pEnd, spectrumColors);
-
-      // Render ray path leading up to current growth tip
       canvas.drawLine(pStart, pTip, rayPaint);
 
-      // Render high-intensity glowing core dot directly on terminal vector location
+      // Core charging dot
       final Paint tipCorePaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(pTip, 4.0, tipCorePaint);
+      canvas.drawCircle(pTip, 4.5, tipCorePaint);
+
+      // Charging outer aura halo
+      final Paint tipGlowPaint = Paint()
+        ..color = Colors.purple.withOpacity(0.4)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pTip, 9.0, tipGlowPaint);
     }
   }
 
