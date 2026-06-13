@@ -8,7 +8,13 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  
+  // Changed to lock the game into landscape orientation
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const ParticleHerderApp());
 }
