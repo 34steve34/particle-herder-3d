@@ -172,8 +172,6 @@ class Plane3D {
     if (denom.abs() > 1e-6) {
       vm.Vector3 p0minusO = point - ray.origin;
       double t = p0minusO.dot(normal) / denom;
-      // Fixed: Removed "t >= 0" check to treat this as an infinite line pierce.
-      // This protects calculations from platform depth-sign flips on Web builds.
       return ray.origin + (ray.direction * t);
     }
     return null;
@@ -406,7 +404,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
     vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
-    // Clean matrix allocation order:
     vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix * viewMatrix)..invert();
 
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
@@ -739,8 +736,6 @@ class Scene3DPainter extends CustomPainter {
         Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
       ];
 
-      // Added a transparent white background vector line core.
-      // This guarantees visibility even if individual browser canvas layers delay shader rendering.
       final Paint clearFallbackPaint = Paint()
         ..color = Colors.white.withOpacity(0.35)
         ..style = PaintingStyle.stroke
@@ -754,13 +749,11 @@ class Scene3DPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(pStart, pEnd, spectrumColors);
       canvas.drawLine(pStart, pTip, rayPaint);
 
-      // Core charging dot
       final Paint tipCorePaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pTip, 4.5, tipCorePaint);
 
-      // Charging outer aura halo
       final Paint tipGlowPaint = Paint()
         ..color = Colors.purple.withOpacity(0.4)
         ..style = PaintingStyle.fill;
