@@ -6,7 +6,7 @@
     "background_color": "#020208",
     "theme_color": "#00FF00",
     "description": "3D Physics Particle Herding Game",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icons": [
         {
             "src": "icons/Icon-192.png",
