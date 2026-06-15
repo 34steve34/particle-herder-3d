@@ -380,6 +380,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
+       // 1. Capture the exact speed before applying forces
+        double originalSpeed = p.velocity.length;
+
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
           double currentRadius = impulse.maxRadius * impulse.getProgress();
@@ -387,9 +390,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
+            
+            // Apply the directional pull
             double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
             p.velocity += forceDirection * pullIntensity * dt;
           }
+        }
+
+        // 2. Lock the speed: normalize the new direction and scale it back to the original speed
+        if (p.velocity.length > 0) {
+          p.velocity.normalize();
+          p.velocity.scale(originalSpeed);
         }
 
         if (p.position.z.abs() > halfZ) {
@@ -780,40 +791,63 @@ class Scene3DPainter extends CustomPainter {
   void _drawColorCodedRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     if (activeRayStart == null || activeRayEnd == null) return;
 
-    Offset? pStart = _projectPoint(activeRayStart!, size, vpMatrix);
-    Offset? pEnd = _projectPoint(activeRayEnd!, size, vpMatrix);
+    final List<Color> spectrumColors = [
+      Colors.red, Colors.orange, Colors.yellow, Colors.green,
+      Colors.blue, Colors.indigo, Colors.purple, Colors.indigo,
+      Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
+    ];
 
+    // Draw the line in 3D segments to bypass 2D gradient compression
+    int segments = 30;
+    int activeSegments = math.max(1, (segments * activeRayProgress).ceil());
+
+    for (int i = 0; i < activeSegments; i++) {
+      double t1 = i / segments;
+      double t2 = (i + 1) / segments;
+      if (t2 > activeRayProgress) t2 = activeRayProgress;
+
+      vm.Vector3 v1 = activeRayStart! + (activeRayEnd! - activeRayStart!) * t1;
+      vm.Vector3 v2 = activeRayStart! + (activeRayEnd! - activeRayStart!) * t2;
+
+      Offset? proj1 = _projectPoint(v1, size, vpMatrix);
+      Offset? proj2 = _projectPoint(v2, size, vpMatrix);
+
+      if (proj1 != null && proj2 != null) {
+        // Calculate the specific color for this depth segment
+        double colorT = (t1 + t2) / 2; 
+        double mappedIndex = colorT * (spectrumColors.length - 1);
+        Color segmentColor = Color.lerp(
+          spectrumColors[mappedIndex.floor()], 
+          spectrumColors[mappedIndex.ceil()], 
+          mappedIndex - mappedIndex.floor()
+        ) ?? Colors.purple;
+
+        final Paint segmentPaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.0
+          ..isAntiAlias = true
+          ..color = segmentColor;
+          
+        canvas.drawLine(proj1, proj2, segmentPaint);
+      }
+    }
+
+    // Draw the glowing tip matching its current depth color
     vm.Vector3 currentTipVec = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
     Offset? pTip = _projectPoint(currentTipVec, size, vpMatrix);
+    
+    if (pTip != null) {
+      double mappedIndex = activeRayProgress * (spectrumColors.length - 1);
+      Color tipColor = Color.lerp(
+          spectrumColors[mappedIndex.floor()], 
+          spectrumColors[mappedIndex.ceil()], 
+          mappedIndex - mappedIndex.floor()
+      ) ?? Colors.purple;
 
-    if (pStart != null && pEnd != null && pTip != null) {
-      final List<Color> spectrumColors = [
-        Colors.red, Colors.orange, Colors.yellow, Colors.green,
-        Colors.blue, Colors.indigo, Colors.purple, Colors.indigo,
-        Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
-      ];
-
-      final Paint clearFallbackPaint = Paint()
-        ..color = Colors.white.withOpacity(0.35)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
-      canvas.drawLine(pStart, pTip, clearFallbackPaint);
-
-      final Paint rayPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.0
-        ..isAntiAlias = true
-        ..shader = ui.Gradient.linear(pStart, pEnd, spectrumColors);
-      canvas.drawLine(pStart, pTip, rayPaint);
-
-      final Paint tipCorePaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
+      final Paint tipCorePaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
       canvas.drawCircle(pTip, 4.5, tipCorePaint);
 
-      final Paint tipGlowPaint = Paint()
-        ..color = Colors.purple.withOpacity(0.4)
-        ..style = PaintingStyle.fill;
+      final Paint tipGlowPaint = Paint()..color = tipColor.withOpacity(0.6)..style = PaintingStyle.fill;
       canvas.drawCircle(pTip, 9.0, tipGlowPaint);
     }
   }
