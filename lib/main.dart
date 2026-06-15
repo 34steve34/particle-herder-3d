@@ -15,6 +15,7 @@ void main() {
     DeviceOrientation.landscapeRight,
   ]);
   
+  // Forces Android/iOS to hide the status bar and navigation bar
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const ParticleHerderApp());
 }
@@ -204,7 +205,8 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
-  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0);
+  // Box is exactly 30% larger per side
+  final vm.Vector3 boxDimensions = vm.Vector3(156.0, 156.0, 390.0);
   final double safeIncubationRadius = 25.0;
 
   bool isPlaying = false;
@@ -218,6 +220,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double activeRayProgress = 0.0;
   int? activeRayPointerId;
 
+  // New multi-touch state variables
+  vm.Vector3? activeCrosshairP1;
+  vm.Vector3? activeCrosshairP2;
+
   late Timer gameTimer;
   late Timer spawnTimer;
   DateTime? gameStartTime;
@@ -227,8 +233,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
-  double autoRotateSpeedTheta = 0.15;
-  double autoRotateSpeedPhi = 0.08;
+  // Natural spin is exactly 50% slower
+  double autoRotateSpeedTheta = 0.075;
+  double autoRotateSpeedPhi = 0.04;
   bool isUserInteractingWithBox = false;
 
   Map<int, Offset> activeTouches = {};
@@ -278,6 +285,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       activeRayEnd = null;
       activeRayProgress = 0.0;
       activeRayPointerId = null;
+      activeCrosshairP1 = null;
+      activeCrosshairP2 = null;
       currentScore = 0;
       elapsedMilliseconds = 0;
       isPlaying = true;
@@ -312,12 +321,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _spawnParticle() {
+    // Particle maximum speed reduced to 50%
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 8,
-        (math.Random().nextDouble() * 2 - 1) * 12,
+        (math.Random().nextDouble() * 2 - 1) * 4,
+        (math.Random().nextDouble() * 2 - 1) * 4,
+        (math.Random().nextDouble() * 2 - 1) * 6,
       ),
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
@@ -332,7 +342,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (activeRayStart != null) {
       setState(() {
-        activeRayProgress += dt * 1.8;
+        // Ray growth is 50% slower
+        activeRayProgress += dt * 0.9;
         if (activeRayProgress > 1.0) activeRayProgress = 1.0;
       });
     }
@@ -369,7 +380,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
 
         if (p.state == ParticleState.active) {
-          // Strictly apply constant velocity. No centrifugal ghost acceleration.
           p.position += p.velocity * dt;
 
           double threatFactor = (p.position.xy.length / halfX).clamp(0.0, 1.0);
@@ -380,7 +390,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
-       // 1. Capture the exact speed before applying forces
+        // --- STRICT VELOCITY LOCK IMPLEMENTATION ---
         double originalSpeed = p.velocity.length;
 
         for (var impulse in activeImpulses) {
@@ -390,18 +400,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
-            
-            // Apply the directional pull
             double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
+            
             p.velocity += forceDirection * pullIntensity * dt;
           }
         }
 
-        // 2. Lock the speed: normalize the new direction and scale it back to the original speed
         if (p.velocity.length > 0) {
           p.velocity.normalize();
           p.velocity.scale(originalSpeed);
         }
+        // -------------------------------------------
 
         if (p.position.z.abs() > halfZ) {
           p.position.z = -p.position.z;
@@ -469,7 +478,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     for (var face in faces) {
       Plane3D plane = Plane3D(face['normal'] as vm.Vector3, face['point'] as vm.Vector3);
       
-      // Backface culling: strictly prevents touching the inside surfaces
       if (cameraRay.direction.dot(plane.normal) >= 0) continue; 
 
       vm.Vector3? pt = plane.intersectRay(cameraRay);
@@ -490,37 +498,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return closestHit;
   }
 
-  List<vm.Vector3> _findRayBoxIntersections(Ray ray) {
-    double halfX = boxDimensions.x / 2;
-    double halfY = boxDimensions.y / 2;
-    double halfZ = boxDimensions.z / 2;
+  void _updateMultiTouchCrosshair(Size bounds) {
+    var keys = activeTouches.keys.toList();
+    if (keys.length < 2) return;
+    
+    Ray ray1 = _castScreenRay(activeTouches[keys[0]]!, bounds);
+    Ray ray2 = _castScreenRay(activeTouches[keys[1]]!, bounds);
 
-    List<Plane3D> planes = [
-      Plane3D(vm.Vector3(1, 0, 0), vm.Vector3(halfX, 0, 0)),
-      Plane3D(vm.Vector3(-1, 0, 0), vm.Vector3(-halfX, 0, 0)),
-      Plane3D(vm.Vector3(0, 1, 0), vm.Vector3(0, halfY, 0)),
-      Plane3D(vm.Vector3(0, -1, 0), vm.Vector3(0, -halfY, 0)),
-      Plane3D(vm.Vector3(0, 0, 1), vm.Vector3(0, 0, halfZ)),
-      Plane3D(vm.Vector3(0, 0, -1), vm.Vector3(0, 0, -halfZ)),
-    ];
+    SurfaceHit? hit1 = _getClosestSurfaceHit(ray1);
+    SurfaceHit? hit2 = _getClosestSurfaceHit(ray2);
 
-    List<MapEntry<vm.Vector3, double>> crossPoints = [];
-
-    for (var plane in planes) {
-      vm.Vector3? pt = plane.intersectRay(ray);
-      if (pt != null) {
-        if (pt.x.abs() <= halfX + 0.1 && pt.y.abs() <= halfY + 0.1 && pt.z.abs() <= halfZ + 0.1) {
-          double dist = (pt - ray.origin).length;
-          crossPoints.add(MapEntry(pt, dist));
-        }
-      }
+    if (hit1 != null && hit2 != null) {
+      setState(() {
+        activeCrosshairP1 = hit1.point;
+        activeCrosshairP2 = hit2.point;
+      });
+    } else {
+      setState(() {
+        activeCrosshairP1 = null;
+        activeCrosshairP2 = null;
+      });
     }
-
-    if (crossPoints.length >= 2) {
-      crossPoints.sort((a, b) => a.value.compareTo(b.value));
-      return [crossPoints.first.key, crossPoints.last.key];
-    }
-    return crossPoints.map((e) => e.key).toList();
   }
 
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
@@ -551,13 +549,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             activeRayPointerId = pointerId;
           });
         }
-      } else if (activeTouches.length >= 2) {
+      } else if (activeTouches.length == 2) {
         setState(() {
           activeRayStart = null;
           activeRayEnd = null;
           activeRayPointerId = null;
         });
-        _processMultiTouchIntersection(screenSize);
+        _updateMultiTouchCrosshair(screenSize);
       }
     }
   }
@@ -573,6 +571,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         cameraTheta -= delta.dx * 0.007;
         cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
       });
+    } else if (activeTouches.length == 2) {
+      _updateMultiTouchCrosshair(screenSize);
     }
   }
 
@@ -591,34 +591,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         activeRayEnd = null;
         activeRayPointerId = null;
       });
+    } else if (activeTouches.length == 2 && activeCrosshairP1 != null && activeCrosshairP2 != null) {
+      // Drop impulse exactly when one of the two crosshair fingers is lifted
+      vm.Vector3 midPoint = activeCrosshairP1! + (activeCrosshairP2! - activeCrosshairP1!) * 0.5;
+      setState(() {
+        activeImpulses.add(GravityImpulse(position: midPoint));
+      });
     }
 
     activeTouches.remove(pointerId);
+    
+    // Clean up crosshair state if user drops below 2 fingers
+    if (activeTouches.length < 2) {
+      setState(() {
+        activeCrosshairP1 = null;
+        activeCrosshairP2 = null;
+      });
+    }
+
     if (activeTouches.isEmpty) {
       isUserInteractingWithBox = false;
-    }
-  }
-
-  void _processMultiTouchIntersection(Size bounds) {
-    if (activeTouches.length < 2) return;
-    var keys = activeTouches.keys.toList();
-    
-    Ray ray1 = _castScreenRay(activeTouches[keys[0]]!, bounds);
-    Ray ray2 = _castScreenRay(activeTouches[keys[1]]!, bounds);
-
-    List<vm.Vector3> pts1 = _findRayBoxIntersections(ray1);
-    List<vm.Vector3> pts2 = _findRayBoxIntersections(ray2);
-
-    if (pts1.isNotEmpty && pts2.isNotEmpty) {
-      vm.Vector3 p1 = pts1.first;
-      vm.Vector3 p2 = pts2.first;
-      vm.Vector3 lineVec = p2 - p1;
-      double midpointFactor = lineVec.length * 0.5;
-      vm.Vector3 midPointIntersection = p1 + (lineVec.normalized() * midpointFactor);
-
-      setState(() {
-        activeImpulses.add(GravityImpulse(position: midPointIntersection));
-      });
     }
   }
 
@@ -646,6 +638,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 activeRayStart: activeRayStart,
                 activeRayEnd: activeRayEnd,
                 activeRayProgress: activeRayProgress,
+                activeCrosshairP1: activeCrosshairP1,
+                activeCrosshairP2: activeCrosshairP2,
               ),
             ),
           ),
@@ -655,7 +649,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.1-ORTHOGONAL-FIX',
+              'v2.7.2-PHYSICS-REBUILT',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -705,7 +699,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   'Square ends wrap around continuously.\n\n'
                   '• Swipe Outskirts to rotate framework camera\n'
                   '• Hold Box to charge a Rainbow Depth Ray (Violet = Center)\n'
-                  '• Touch 2 faces to drop a Crosshair Intersection',
+                  '• Hold 2 faces to span a Target Crosshair',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
                 ),
@@ -750,6 +744,9 @@ class Scene3DPainter extends CustomPainter {
   final vm.Vector3? activeRayStart;
   final vm.Vector3? activeRayEnd;
   final double activeRayProgress;
+  
+  final vm.Vector3? activeCrosshairP1;
+  final vm.Vector3? activeCrosshairP2;
 
   Scene3DPainter({
     required this.boxDimensions,
@@ -760,6 +757,8 @@ class Scene3DPainter extends CustomPainter {
     this.activeRayStart,
     this.activeRayEnd,
     required this.activeRayProgress,
+    this.activeCrosshairP1,
+    this.activeCrosshairP2,
   });
 
   @override
@@ -774,6 +773,7 @@ class Scene3DPainter extends CustomPainter {
     _drawBoundingBox(canvas, size, vpMatrix);
     _drawGravityImpulses(canvas, size, vpMatrix);
     _drawColorCodedRay(canvas, size, vpMatrix);
+    _drawMultiTouchCrosshair(canvas, size, vpMatrix);
     _drawParticles(canvas, size, vpMatrix);
   }
 
@@ -788,6 +788,40 @@ class Scene3DPainter extends CustomPainter {
     return Offset(x, y);
   }
 
+  void _drawMultiTouchCrosshair(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+    if (activeCrosshairP1 == null || activeCrosshairP2 == null) return;
+
+    Offset? p1 = _projectPoint(activeCrosshairP1!, size, vpMatrix);
+    Offset? p2 = _projectPoint(activeCrosshairP2!, size, vpMatrix);
+    
+    vm.Vector3 midPointVec = activeCrosshairP1! + (activeCrosshairP2! - activeCrosshairP1!) * 0.5;
+    Offset? pMid = _projectPoint(midPointVec, size, vpMatrix);
+
+    if (p1 != null && p2 != null && pMid != null) {
+      final Paint laserPaint = Paint()
+        ..color = Colors.cyanAccent.withOpacity(0.8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+      canvas.drawLine(p1, p2, laserPaint);
+
+      final Paint anchorPaint = Paint()
+        ..color = Colors.cyan
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(p1, 4.0, anchorPaint);
+      canvas.drawCircle(p2, 4.0, anchorPaint);
+
+      final Paint targetGlow = Paint()
+        ..color = Colors.white.withOpacity(0.5)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pMid, 12.0, targetGlow);
+      
+      final Paint targetCore = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pMid, 5.0, targetCore);
+    }
+  }
+
   void _drawColorCodedRay(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     if (activeRayStart == null || activeRayEnd == null) return;
 
@@ -797,7 +831,7 @@ class Scene3DPainter extends CustomPainter {
       Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
     ];
 
-    // Draw the line in 3D segments to bypass 2D gradient compression
+    // True 3D Segmented Ray to prevent perspective squashing
     int segments = 30;
     int activeSegments = math.max(1, (segments * activeRayProgress).ceil());
 
@@ -813,7 +847,6 @@ class Scene3DPainter extends CustomPainter {
       Offset? proj2 = _projectPoint(v2, size, vpMatrix);
 
       if (proj1 != null && proj2 != null) {
-        // Calculate the specific color for this depth segment
         double colorT = (t1 + t2) / 2; 
         double mappedIndex = colorT * (spectrumColors.length - 1);
         Color segmentColor = Color.lerp(
@@ -832,7 +865,6 @@ class Scene3DPainter extends CustomPainter {
       }
     }
 
-    // Draw the glowing tip matching its current depth color
     vm.Vector3 currentTipVec = activeRayStart! + (activeRayEnd! - activeRayStart!) * activeRayProgress;
     Offset? pTip = _projectPoint(currentTipVec, size, vpMatrix);
     
@@ -852,7 +884,7 @@ class Scene3DPainter extends CustomPainter {
     }
   }
 
-  void _drawBoundingBox(Canvas canvas, Size size, vpMatrix) {
+  void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     double hX = boxDimensions.x / 2;
     double hY = boxDimensions.y / 2;
     double hZ = boxDimensions.z / 2;
