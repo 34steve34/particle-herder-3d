@@ -939,10 +939,11 @@ void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     vm.Vector3 up = vm.Vector3(0, 1, 0);
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
 
+    // Explicitly type the list as List<vm.Vector3>
     List<vm.Vector3> viewSpaceVertices = vertices.map((v) {
       vm.Vector4 v4 = vm.Vector4(v.x, v.y, v.z, 1.0);
       return (viewMatrix * v4).xyz;
-    }).toList();
+    }).toList().cast<vm.Vector3>(); // Added .cast<vm.Vector3>() here
 
     List<Offset?> projected = vertices.map((v) => _projectPoint(v, size, vpMatrix)).toList();
 
