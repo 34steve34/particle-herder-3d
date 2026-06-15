@@ -689,7 +689,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.3-SKEW-LINE-GEOMETRY',
+              'v2.7.4-SKEW-LINE-GEOMETRY',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -921,7 +921,7 @@ class Scene3DPainter extends CustomPainter {
     }
   }
 
-  void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     double hX = boxDimensions.x / 2;
     double hY = boxDimensions.y / 2;
     double hZ = boxDimensions.z / 2;
@@ -933,37 +933,50 @@ class Scene3DPainter extends CustomPainter {
       vm.Vector3(hX, hY, hZ), vm.Vector3(-hX, hY, hZ),
     ];
 
+    // 1. Calculate View-Space positions to determine "depth" relative to camera
+    // We need the View Matrix specifically, not the full ProjectionView matrix
+    vm.Vector3 target = vm.Vector3(0, 0, 0);
+    vm.Vector3 up = vm.Vector3(0, 1, 0);
+    vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
+
+    List<vm.Vector3> viewSpaceVertices = vertices.map((v) {
+      vm.Vector4 v4 = vm.Vector4(v.x, v.y, v.z, 1.0);
+      return (viewMatrix * v4).xyz;
+    }).toList();
+
     List<Offset?> projected = vertices.map((v) => _projectPoint(v, size, vpMatrix)).toList();
 
-    // Define edges as pairs of indices
     List<List<int>> edges = [
-      [0, 1], [1, 2], [2, 3], [3, 0], // Back face
-      [4, 5], [5, 6], [6, 7], [7, 4], // Front face
-      [0, 4], [1, 5], [2, 6], [3, 7], // Connecting struts
+      [0, 1], [1, 2], [2, 3], [3, 0], 
+      [4, 5], [5, 6], [6, 7], [7, 4], 
+      [0, 4], [1, 5], [2, 6], [3, 7], 
     ];
+
+    final Paint edgePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
 
     for (var edge in edges) {
       Offset? p1 = projected[edge[0]];
       Offset? p2 = projected[edge[1]];
 
       if (p1 != null && p2 != null) {
-        // Calculate depth: average Z of the edge
-        double avgZ = (vertices[edge[0]].z + vertices[edge[1]].z) / 2;
-        // Normalize Z to 0 (back) to 1 (front) for alpha calculation
-        double depthFactor = ((avgZ + hZ) / (hZ * 2)).clamp(0.0, 1.0);
+        // 2. Use the view-space Z values for depth calculation
+        double z1 = viewSpaceVertices[edge[0]].z;
+        double z2 = viewSpaceVertices[edge[1]].z;
+        double avgViewZ = (z1 + z2) / 2;
 
-        final Paint edgePaint = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.0 + (depthFactor * 2.0)
-          ..color = Color.lerp(
-            Colors.blue.withOpacity(0.3), 
-            Colors.cyanAccent, 
-            depthFactor
-          )!;
+        // Invert depth: closer to camera = higher value
+        // You may need to tune the -300 to -600 range based on your camera radius
+        double depthFactor = ((-avgViewZ - 100) / 600).clamp(0.0, 1.0);
+        
+        edgePaint.color = Colors.cyan.withOpacity(0.15 + (depthFactor * 0.85));
+        edgePaint.strokeWidth = 1.0 + (depthFactor * 2.5);
 
         canvas.drawLine(p1, p2, edgePaint);
       }
     }
+
     _drawInteriorSubGrids(canvas, size, vpMatrix, hX, hY, hZ);
   }
 
