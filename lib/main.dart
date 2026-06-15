@@ -448,7 +448,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(30.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
     vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix * viewMatrix)..invert();
 
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
@@ -797,7 +797,7 @@ class Scene3DPainter extends CustomPainter {
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(45.0), size.width / size.height, 10.0, 1000.0);
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(30.0), size.width / size.height, 10.0, 1000.0);
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
@@ -936,48 +936,53 @@ class Scene3DPainter extends CustomPainter {
 
     List<Offset?> projected = vertices.map((v) => _projectPoint(v, size, vpMatrix)).toList();
 
+    // Define edges as pairs of indices
     List<List<int>> edges = [
-      [0, 1], [1, 2], [2, 3], [3, 0], 
-      [4, 5], [5, 6], [6, 7], [7, 4], 
-      [0, 4], [1, 5], [2, 6], [3, 7], 
+      [0, 1], [1, 2], [2, 3], [3, 0], // Back face
+      [4, 5], [5, 6], [6, 7], [7, 4], // Front face
+      [0, 4], [1, 5], [2, 6], [3, 7], // Connecting struts
     ];
-
-    final Paint edgePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..isAntiAlias = true;
 
     for (var edge in edges) {
       Offset? p1 = projected[edge[0]];
       Offset? p2 = projected[edge[1]];
 
       if (p1 != null && p2 != null) {
-        double averageDepth = (vertices[edge[0]].z + vertices[edge[1]].z) / (hZ * 2) + 0.5;
-        
-        edgePaint.color = Colors.cyan.withOpacity(math.max(0.15, 1.0 - averageDepth));
-        edgePaint.strokeWidth = math.max(1.0, 3.5 * (1.0 - averageDepth));
+        // Calculate depth: average Z of the edge
+        double avgZ = (vertices[edge[0]].z + vertices[edge[1]].z) / 2;
+        // Normalize Z to 0 (back) to 1 (front) for alpha calculation
+        double depthFactor = ((avgZ + hZ) / (hZ * 2)).clamp(0.0, 1.0);
+
+        final Paint edgePaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0 + (depthFactor * 2.0)
+          ..color = Color.lerp(
+            Colors.blue.withOpacity(0.3), 
+            Colors.cyanAccent, 
+            depthFactor
+          )!;
 
         canvas.drawLine(p1, p2, edgePaint);
       }
     }
-
     _drawInteriorSubGrids(canvas, size, vpMatrix, hX, hY, hZ);
   }
 
   void _drawInteriorSubGrids(Canvas canvas, Size size, vm.Matrix4 vpMatrix, double hX, double hY, double hZ) {
-    final gridPaint = Paint()
-      ..color = Colors.cyan.withOpacity(0.06)
-      ..strokeWidth = 0.8
-      ..style = PaintingStyle.stroke;
-
+    // Ensuring grid lines render on all 4 side walls, not just front/back
     for (double i = -hZ + 50; i < hZ; i += 50) {
       List<vm.Vector3> ring = [
         vm.Vector3(-hX, -hY, i), vm.Vector3(hX, -hY, i),
         vm.Vector3(hX, hY, i), vm.Vector3(-hX, hY, i)
       ];
-      List<Offset?> projRing = ring.map((v) => _projectPoint(v, size, vpMatrix)).toList();
+      
+      final gridPaint = Paint()
+        ..color = Colors.cyan.withOpacity(0.15)
+        ..strokeWidth = 0.5;
+
       for (int j = 0; j < 4; j++) {
-        Offset? p1 = projRing[j];
-        Offset? p2 = projRing[(j + 1) % 4];
+        Offset? p1 = _projectPoint(ring[j], size, vpMatrix);
+        Offset? p2 = _projectPoint(ring[(j + 1) % 4], size, vpMatrix);
         if (p1 != null && p2 != null) canvas.drawLine(p1, p2, gridPaint);
       }
     }
