@@ -184,6 +184,14 @@ class Plane3D {
   }
 }
 
+class SurfaceHit {
+  final vm.Vector3 point;
+  final vm.Vector3 normal;
+  final double depthToOpposite;
+
+  SurfaceHit(this.point, this.normal, this.depthToOpposite);
+}
+
 // ==========================================
 // 3. MAIN GAME SCREEN
 // ==========================================
@@ -219,8 +227,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
-  double autoRotateSpeedTheta = 0.12;
-  double autoRotateSpeedPhi = 0.05;
+  double autoRotateSpeedTheta = 0.15;
+  double autoRotateSpeedPhi = 0.08;
   bool isUserInteractingWithBox = false;
 
   Map<int, Offset> activeTouches = {};
@@ -307,9 +315,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 5,
-        (math.Random().nextDouble() * 2 - 1) * 5,
-        (math.Random().nextDouble() * 2 - 1) * 9,
+        (math.Random().nextDouble() * 2 - 1) * 8,
+        (math.Random().nextDouble() * 2 - 1) * 8,
+        (math.Random().nextDouble() * 2 - 1) * 12,
       ),
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
@@ -377,17 +385,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           double currentRadius = impulse.maxRadius * impulse.getProgress();
           
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
-            double originalSpeed = p.velocity.length;
-            
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
             double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
-            
             p.velocity += forceDirection * pullIntensity * dt;
-            
-            // Restore original speed magnitude - only direction changes
-            p.velocity.normalize();
-            p.velocity *= originalSpeed;
           }
         }
 
@@ -437,6 +438,47 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Ray(rayOrigin, rayDirection);
   }
 
+  SurfaceHit? _getClosestSurfaceHit(Ray cameraRay) {
+    double halfX = boxDimensions.x / 2;
+    double halfY = boxDimensions.y / 2;
+    double halfZ = boxDimensions.z / 2;
+
+    List<Map<String, dynamic>> faces = [
+      {'normal': vm.Vector3(1, 0, 0), 'point': vm.Vector3(halfX, 0, 0), 'span': boxDimensions.x},
+      {'normal': vm.Vector3(-1, 0, 0), 'point': vm.Vector3(-halfX, 0, 0), 'span': boxDimensions.x},
+      {'normal': vm.Vector3(0, 1, 0), 'point': vm.Vector3(0, halfY, 0), 'span': boxDimensions.y},
+      {'normal': vm.Vector3(0, -1, 0), 'point': vm.Vector3(0, -halfY, 0), 'span': boxDimensions.y},
+      {'normal': vm.Vector3(0, 0, 1), 'point': vm.Vector3(0, 0, halfZ), 'span': boxDimensions.z},
+      {'normal': vm.Vector3(0, 0, -1), 'point': vm.Vector3(0, 0, -halfZ), 'span': boxDimensions.z},
+    ];
+
+    SurfaceHit? closestHit;
+    double minDistance = double.infinity;
+
+    for (var face in faces) {
+      Plane3D plane = Plane3D(face['normal'] as vm.Vector3, face['point'] as vm.Vector3);
+      
+      // Backface culling: strictly prevents touching the inside surfaces
+      if (cameraRay.direction.dot(plane.normal) >= 0) continue; 
+
+      vm.Vector3? pt = plane.intersectRay(cameraRay);
+      
+      if (pt != null) {
+        if (pt.x.abs() <= halfX + 0.1 && 
+            pt.y.abs() <= halfY + 0.1 && 
+            pt.z.abs() <= halfZ + 0.1) {
+          
+          double dist = (pt - cameraRay.origin).length;
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestHit = SurfaceHit(pt, plane.normal, face['span'] as double);
+          }
+        }
+      }
+    }
+    return closestHit;
+  }
+
   List<vm.Vector3> _findRayBoxIntersections(Ray ray) {
     double halfX = boxDimensions.x / 2;
     double halfY = boxDimensions.y / 2;
@@ -471,6 +513,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _handleTouchDown(int pointerId, Offset localPosition, Size screenSize) {
+    activeTouches[pointerId] = localPosition;
+
     double marginX = screenSize.width * 0.15;
     double marginY = screenSize.height * 0.15;
     bool insideOutskirtsZone = localPosition.dx < marginX || 
@@ -480,27 +524,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (insideOutskirtsZone && cameraTrackingPointerId == null) {
       cameraTrackingPointerId = pointerId;
-      activeTouches[pointerId] = localPosition;
     } else if (!insideOutskirtsZone) {
       isUserInteractingWithBox = true;
 
-      bool wasEmpty = activeTouches.isEmpty;
-      activeTouches[pointerId] = localPosition;
+      if (activeTouches.length == 1) {
+        Ray cameraRay = _castScreenRay(localPosition, screenSize);
+        SurfaceHit? hit = _getClosestSurfaceHit(cameraRay);
 
-      if (wasEmpty) {
-        // First touch - create ray
-        Ray ray = _castScreenRay(localPosition, screenSize);
-        List<vm.Vector3> targets = _findRayBoxIntersections(ray);
-        if (targets.length >= 2) {
+        if (hit != null) {
           setState(() {
-            activeRayStart = targets[0];
-            activeRayEnd = targets[1];
+            activeRayStart = hit.point;
+            vm.Vector3 orthogonalInwardDir = -hit.normal; 
+            activeRayEnd = hit.point + (orthogonalInwardDir * hit.depthToOpposite);
             activeRayProgress = 0.0;
             activeRayPointerId = pointerId;
           });
         }
-      } else {
-        // Second (or more) touch - trigger multi-touch intersection
+      } else if (activeTouches.length >= 2) {
         setState(() {
           activeRayStart = null;
           activeRayEnd = null;
@@ -604,7 +644,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.1-STRICT-PHYSICS',
+              'v2.7.1-ORTHOGONAL-FIX',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -778,7 +818,7 @@ class Scene3DPainter extends CustomPainter {
     }
   }
 
-  void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+  void _drawBoundingBox(Canvas canvas, Size size, vpMatrix) {
     double hX = boxDimensions.x / 2;
     double hY = boxDimensions.y / 2;
     double hZ = boxDimensions.z / 2;
