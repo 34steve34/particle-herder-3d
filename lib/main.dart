@@ -224,7 +224,7 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
-  final vm.Vector3 boxDimensions = vm.Vector3(156.0, 156.0, 390.0);
+  final vm.Vector3 boxDimensions = vm.Vector3(120.0, 120.0, 300.0);
   final double safeIncubationRadius = 25.0;
 
   bool isPlaying = false;
@@ -608,20 +608,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _handleTouchMove(int pointerId, Offset localPosition, Size screenSize) {
-    if (!activeTouches.containsKey(pointerId)) return;
-    Offset previousPosition = activeTouches[pointerId]!;
-    activeTouches[pointerId] = localPosition;
+  if (!activeTouches.containsKey(pointerId)) return;
+  Offset previousPosition = activeTouches[pointerId]!;
+  activeTouches[pointerId] = localPosition;
 
-    if (pointerId == cameraTrackingPointerId) {
-      Offset delta = localPosition - previousPosition;
-      setState(() {
-        cameraTheta -= delta.dx * 0.007;
-        cameraPhi = (cameraPhi - delta.dy * 0.007).clamp(0.2, math.pi - 0.2);
-      });
-    } else if (activeTouches.length == 2) {
-      _updateMultiTouchCrosshair(screenSize);
-    }
+  if (pointerId == cameraTrackingPointerId) {
+    Offset delta = localPosition - previousPosition;
+    setState(() {
+      cameraTheta -= delta.dx * 0.007;
+      // Removed .clamp() to allow full 360-degree vertical rotation
+      cameraPhi = (cameraPhi - delta.dy * 0.007); 
+    });
   }
+}
 
   void _handleTouchUp(int pointerId, Size screenSize) {
     if (pointerId == cameraTrackingPointerId) {
