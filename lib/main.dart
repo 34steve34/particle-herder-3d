@@ -227,6 +227,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   final double safeIncubationRadius = 25.0;
 
   bool isPlaying = false;
+  bool isGameOver = false;
   int currentScore = 0;
   List<int> highScores = [];
   List<Particle3D> particles = [];
@@ -244,7 +245,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  double cameraRadius = 400.0;
+  double cameraRadius = 450.0; // pulled back slightly for better proportion
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
@@ -303,6 +304,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       currentScore = 0;
       elapsedMilliseconds = 0;
       isPlaying = true;
+      isGameOver = false;
       gameStartTime = DateTime.now();
       _spawnParticle();
     });
@@ -326,8 +328,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!isPlaying) return;
     setState(() {
       isPlaying = false;
+      isGameOver = true;
     });
-    _gameLoopController.stop();
+    _gameLoopController.stop();  // stop physics
     gameTimer.cancel();
     spawnTimer.cancel();
     _saveHighScore(currentScore);
@@ -337,9 +340,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final p = Particle3D(
       position: vm.Vector3(0, 0, 0),
       velocity: vm.Vector3(
-        (math.Random().nextDouble() * 2 - 1) * 4,
-        (math.Random().nextDouble() * 2 - 1) * 4,
-        (math.Random().nextDouble() * 2 - 1) * 6,
+        (math.Random().nextDouble() * 2 - 1) * 2.8,
+        (math.Random().nextDouble() * 2 - 1) * 2.8,
+        (math.Random().nextDouble() * 2 - 1) * 4.2,
       ),
       state: ParticleState.incubating,
       color: const Color(0xFF00FF00),
@@ -348,7 +351,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _updatePhysicsLoop() {
-    if (!isPlaying) return;
+    if (!isPlaying && !isGameOver) return;
 
     double dt = 0.016;
 
@@ -359,7 +362,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
-    // Auto-rotate only when not touching the screen
+    // Auto-rotate only when not touching (even after game over)
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
@@ -441,15 +444,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return vm.Vector3(x, y, z);
   }
 
-  // ... (raycasting methods unchanged - _castScreenRay, _getClosestSurfaceHit, _updateMultiTouchCrosshair, _handleTouchDown remain the same)
-
   Ray _castScreenRay(Offset touchPoint, Size widgetBounds) {
     vm.Vector3 camPos = _computeCameraPosition();
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(camPos, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(30.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(35.0), widgetBounds.width / widgetBounds.height, 10.0, 1000.0);
     vm.Matrix4 inverseProjectionView = vm.Matrix4.copy(projectionMatrix * viewMatrix)..invert();
 
     double ndcX = (touchPoint.dx / widgetBounds.width) * 2.0 - 1.0;
@@ -694,7 +695,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.6-FREE-ROTATION',
+              'v2.8.1-BETTER-PERSPECTIVE',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -725,6 +726,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildMenuOverlay() {
+    final isOver = isGameOver && !isPlaying;
     return Container(
       color: Colors.black87,
       child: Center(
@@ -732,19 +734,32 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                'PARTICLE HERDER 3D',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 3, color: Colors.green),
+              Text(
+                isOver ? 'GAME OVER' : 'PARTICLE HERDER 3D',
+                style: TextStyle(
+                  fontSize: isOver ? 32 : 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 3,
+                  color: isOver ? Colors.redAccent : Colors.green,
+                ),
               ),
+              const SizedBox(height: 10),
+              if (isOver)
+                Text(
+                  'FINAL SCORE: $currentScore',
+                  style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                ),
               const SizedBox(height: 15),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40.0),
                 child: Text(
-                  'Herd particles away from the 4 long side walls.\n'
-                  'Square ends wrap around continuously.\n\n'
-                  '• Swipe Outskirts to rotate framework camera\n'
-                  '• Hold Box to charge a Rainbow Depth Ray (Violet = Center)\n'
-                  '• Hold 2 faces to span an Orthogonal Crosshair',
+                  isOver
+                      ? 'You can still rotate the camera to inspect the escape point.\n\nSwipe the outer areas to orbit freely.'
+                      : 'Herd particles away from the 4 long side walls.\n'
+                        'Square ends wrap around continuously.\n\n'
+                        '• Swipe Outskirts to rotate framework camera\n'
+                        '• Hold Box to charge a Rainbow Depth Ray (Violet = Center)\n'
+                        '• Hold 2 faces to span an Orthogonal Crosshair',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
                 ),
@@ -756,7 +771,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                 ),
                 onPressed: _startNewGame,
-                child: const Text('START HERDING', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                child: Text(
+                  isOver ? 'PLAY AGAIN' : 'START HERDING',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                ),
               ),
             ],
           ),
@@ -801,7 +819,7 @@ class Scene3DPainter extends CustomPainter {
     vm.Vector3 up = vm.Vector3(0, 1, 0);
 
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
-    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(30.0), size.width / size.height, 10.0, 1000.0);
+    vm.Matrix4 projectionMatrix = vm.makePerspectiveMatrix(vm.radians(35.0), size.width / size.height, 10.0, 1000.0);
     vm.Matrix4 vpMatrix = projectionMatrix * viewMatrix;
 
     _drawBoundingBox(canvas, size, vpMatrix);
@@ -965,14 +983,15 @@ class Scene3DPainter extends CustomPainter {
         double z2 = viewSpaceVertices[edge[1]].z;
         double avgViewZ = (z1 + z2) / 2;
 
-        // FIXED: Proper depth dimming (rear edges fade)
+        // Stronger depth cue: rear edges much dimmer + thinner
         double distanceFromCamera = -avgViewZ;
         double minDist = 180.0;
         double maxDist = 680.0;
         double depthFactor = ((maxDist - distanceFromCamera) / (maxDist - minDist)).clamp(0.0, 1.0);
         
-        edgePaint.color = Colors.cyan.withOpacity(0.18 + (depthFactor * 0.78));
-        edgePaint.strokeWidth = 1.1 + (depthFactor * 2.6);
+        // Rear edges ~30-40% opacity of front
+        edgePaint.color = Colors.cyan.withOpacity(0.12 + (depthFactor * 0.68));
+        edgePaint.strokeWidth = 0.9 + (depthFactor * 2.8);
 
         canvas.drawLine(p1, p2, edgePaint);
       }
