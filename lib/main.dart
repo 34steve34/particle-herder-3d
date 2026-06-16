@@ -245,7 +245,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  double cameraRadius = 450.0; // pulled back for better proportions
+  double cameraRadius = 450.0;
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
@@ -330,7 +330,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isPlaying = false;
       isGameOver = true;
     });
-    _gameLoopController.stop();  // stop physics but keep camera active
+    _gameLoopController.stop();
     gameTimer.cancel();
     spawnTimer.cancel();
     _saveHighScore(currentScore);
@@ -362,11 +362,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
-    // Auto-rotate only when not touching (even after game over)
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
-        cameraPhi += autoRotateSpeedPhi * dt * 0.6;  // gentler auto on vertical
+        cameraPhi += autoRotateSpeedPhi * dt * 0.6;
       });
     }
 
@@ -409,12 +408,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
         for (var impulse in activeImpulses) {
           double distanceToImpulse = (p.position - impulse.position).length;
-          double currentRadius = impulse.maxRadius * impulse.getProgress();
+          double progress = impulse.getProgress();
+          double currentRadius = impulse.maxRadius * progress;
           
           if (distanceToImpulse < currentRadius && distanceToImpulse > 5.0) {
             vm.Vector3 forceDirection = impulse.position - p.position;
             forceDirection.normalize();
-            double pullIntensity = (1.0 - (distanceToImpulse / impulse.maxRadius)) * 140.0;
+            
+            // Improved gravity-like falloff (stronger near, much weaker far)
+            double normalizedDist = distanceToImpulse / currentRadius;
+            double pullIntensity = (1.0 - normalizedDist * normalizedDist) * 220.0;
             
             p.velocity += forceDirection * pullIntensity * dt;
           }
@@ -615,19 +618,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       Offset delta = localPosition - previousPosition;
       setState(() {
         cameraTheta -= delta.dx * 0.0075;
-
-        // Improved free vertical rotation
         cameraPhi += -delta.dy * 0.0075;
 
-        // Wrap around for continuous feel (full sphere navigation)
         if (cameraPhi > math.pi * 2) cameraPhi -= math.pi * 2;
         if (cameraPhi < 0) cameraPhi += math.pi * 2;
-
-        // Soft pole protection (prevent exact top/bottom singularity)
         cameraPhi = cameraPhi.clamp(0.15, math.pi * 2 - 0.15);
       });
     } else if (activeTouches.length == 2) {
-      // Live update crosshair while dragging fingers in 2-touch mode
       _updateMultiTouchCrosshair(screenSize);
     }
   }
@@ -647,9 +644,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         activeRayEnd = null;
         activeRayPointerId = null;
       });
-    } 
-    // 2-touch detonation: trigger impulse when releasing from 2 touches
-    else if (activeTouches.length == 2 && activeCrosshair != null) {
+    } else if (activeTouches.length == 2 && activeCrosshair != null) {
       vm.Vector3 dropPos = activeCrosshair!.midPoint;
       setState(() {
         activeImpulses.add(GravityImpulse(position: dropPos));
@@ -700,7 +695,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.8.2-DYNAMIC-2TOUCH',
+              'v2.8.3-IMPROVED-GRAVITY',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -988,7 +983,6 @@ class Scene3DPainter extends CustomPainter {
         double z2 = viewSpaceVertices[edge[1]].z;
         double avgViewZ = (z1 + z2) / 2;
 
-        // Stronger depth cue: rear edges much dimmer + thinner (~30-40% of front)
         double distanceFromCamera = -avgViewZ;
         double minDist = 180.0;
         double maxDist = 680.0;
