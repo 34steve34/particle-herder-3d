@@ -238,7 +238,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double activeRayProgress = 0.0;
   int? activeRayPointerId;
 
-  // Replaced simple vector pair with complex Crosshair model
   CrosshairData? activeCrosshair;
 
   late Timer gameTimer;
@@ -541,12 +540,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       vm.Vector3 c1, c2, mid;
 
       if (denom.abs() < 1e-6) {
-        // Fallback for parallel rays (e.g., touching opposite walls)
         c1 = p1 + (d1 * hit1.depthToOpposite * 0.5);
         c2 = p2 + (d2 * hit2.depthToOpposite * 0.5);
         mid = c1 + (c2 - c1) * 0.5;
       } else {
-        // Find closest point of approach between the two independent rays
         double t1 = (b * e - c * d) / denom;
         double t2 = (a * e - b * d) / denom;
         
@@ -616,7 +613,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     Offset delta = localPosition - previousPosition;
     setState(() {
       cameraTheta -= delta.dx * 0.007;
-      // Removed .clamp() to allow full 360-degree vertical rotation
       cameraPhi = (cameraPhi - delta.dy * 0.007); 
     });
   }
@@ -638,7 +634,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         activeRayPointerId = null;
       });
     } else if (activeTouches.length == 2 && activeCrosshair != null) {
-      // Drop impulse at the math-computed midpoint of the closest gap
       vm.Vector3 dropPos = activeCrosshair!.midPoint;
       setState(() {
         activeImpulses.add(GravityImpulse(position: dropPos));
@@ -689,7 +684,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.4-SKEW-LINE-GEOMETRY',
+              'v2.7.5-BETTER-DEPTH',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -820,15 +815,12 @@ class Scene3DPainter extends CustomPainter {
   void _drawMultiTouchCrosshair(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     if (activeCrosshair == null) return;
 
-    // Draw Ray 1
     Offset? r1s = _projectPoint(activeCrosshair!.ray1Start, size, vpMatrix);
     Offset? r1e = _projectPoint(activeCrosshair!.ray1End, size, vpMatrix);
     
-    // Draw Ray 2
     Offset? r2s = _projectPoint(activeCrosshair!.ray2Start, size, vpMatrix);
     Offset? r2e = _projectPoint(activeCrosshair!.ray2End, size, vpMatrix);
 
-    // Draw the gap connections
     Offset? c1 = _projectPoint(activeCrosshair!.closest1, size, vpMatrix);
     Offset? c2 = _projectPoint(activeCrosshair!.closest2, size, vpMatrix);
     Offset? pMid = _projectPoint(activeCrosshair!.midPoint, size, vpMatrix);
@@ -921,7 +913,7 @@ class Scene3DPainter extends CustomPainter {
     }
   }
 
-void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
+  void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
     double hX = boxDimensions.x / 2;
     double hY = boxDimensions.y / 2;
     double hZ = boxDimensions.z / 2;
@@ -933,17 +925,14 @@ void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
       vm.Vector3(hX, hY, hZ), vm.Vector3(-hX, hY, hZ),
     ];
 
-    // 1. Calculate View-Space positions to determine "depth" relative to camera
-    // We need the View Matrix specifically, not the full ProjectionView matrix
     vm.Vector3 target = vm.Vector3(0, 0, 0);
     vm.Vector3 up = vm.Vector3(0, 1, 0);
     vm.Matrix4 viewMatrix = vm.makeViewMatrix(cameraPosition, target, up);
 
-    // Explicitly type the list as List<vm.Vector3>
     List<vm.Vector3> viewSpaceVertices = vertices.map((v) {
       vm.Vector4 v4 = vm.Vector4(v.x, v.y, v.z, 1.0);
       return (viewMatrix * v4).xyz;
-    }).toList().cast<vm.Vector3>(); // Added .cast<vm.Vector3>() here
+    }).toList().cast<vm.Vector3>();
 
     List<Offset?> projected = vertices.map((v) => _projectPoint(v, size, vpMatrix)).toList();
 
@@ -962,17 +951,20 @@ void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
       Offset? p2 = projected[edge[1]];
 
       if (p1 != null && p2 != null) {
-        // 2. Use the view-space Z values for depth calculation
         double z1 = viewSpaceVertices[edge[0]].z;
         double z2 = viewSpaceVertices[edge[1]].z;
         double avgViewZ = (z1 + z2) / 2;
 
-        // Invert depth: closer to camera = higher value
-        // You may need to tune the -300 to -600 range based on your camera radius
-        double depthFactor = ((-avgViewZ - 100) / 600).clamp(0.0, 1.0);
+        // === FIXED DEPTH LOGIC ===
+        // Closer edges (smaller |avgViewZ|) = brighter + thicker
+        // Farther (rear) edges = dimmer + thinner
+        double distanceFromCamera = -avgViewZ;           // positive value
+        double minDist = 180.0;
+        double maxDist = 680.0;
+        double depthFactor = ((maxDist - distanceFromCamera) / (maxDist - minDist)).clamp(0.0, 1.0);
         
-        edgePaint.color = Colors.cyan.withOpacity(0.15 + (depthFactor * 0.85));
-        edgePaint.strokeWidth = 1.0 + (depthFactor * 2.5);
+        edgePaint.color = Colors.cyan.withOpacity(0.18 + (depthFactor * 0.78));
+        edgePaint.strokeWidth = 1.1 + (depthFactor * 2.6);
 
         canvas.drawLine(p1, p2, edgePaint);
       }
@@ -982,7 +974,6 @@ void _drawBoundingBox(Canvas canvas, Size size, vm.Matrix4 vpMatrix) {
   }
 
   void _drawInteriorSubGrids(Canvas canvas, Size size, vm.Matrix4 vpMatrix, double hX, double hY, double hZ) {
-    // Ensuring grid lines render on all 4 side walls, not just front/back
     for (double i = -hZ + 50; i < hZ; i += 50) {
       List<vm.Vector3> ring = [
         vm.Vector3(-hX, -hY, i), vm.Vector3(hX, -hY, i),
