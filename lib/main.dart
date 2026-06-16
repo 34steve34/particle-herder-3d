@@ -245,7 +245,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   DateTime? gameStartTime;
   int elapsedMilliseconds = 0;
 
-  double cameraRadius = 450.0; // pulled back slightly for better proportion
+  double cameraRadius = 450.0; // pulled back for better proportions
   double cameraTheta = 0.78;
   double cameraPhi = 1.2;
   
@@ -330,7 +330,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isPlaying = false;
       isGameOver = true;
     });
-    _gameLoopController.stop();  // stop physics
+    _gameLoopController.stop();  // stop physics but keep camera active
     gameTimer.cancel();
     spawnTimer.cancel();
     _saveHighScore(currentScore);
@@ -626,6 +626,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         // Soft pole protection (prevent exact top/bottom singularity)
         cameraPhi = cameraPhi.clamp(0.15, math.pi * 2 - 0.15);
       });
+    } else if (activeTouches.length == 2) {
+      // Live update crosshair while dragging fingers in 2-touch mode
+      _updateMultiTouchCrosshair(screenSize);
     }
   }
 
@@ -644,7 +647,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         activeRayEnd = null;
         activeRayPointerId = null;
       });
-    } else if (activeTouches.length == 2 && activeCrosshair != null) {
+    } 
+    // 2-touch detonation: trigger impulse when releasing from 2 touches
+    else if (activeTouches.length == 2 && activeCrosshair != null) {
       vm.Vector3 dropPos = activeCrosshair!.midPoint;
       setState(() {
         activeImpulses.add(GravityImpulse(position: dropPos));
@@ -695,7 +700,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.8.1-BETTER-PERSPECTIVE',
+              'v2.8.2-DYNAMIC-2TOUCH',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -983,13 +988,12 @@ class Scene3DPainter extends CustomPainter {
         double z2 = viewSpaceVertices[edge[1]].z;
         double avgViewZ = (z1 + z2) / 2;
 
-        // Stronger depth cue: rear edges much dimmer + thinner
+        // Stronger depth cue: rear edges much dimmer + thinner (~30-40% of front)
         double distanceFromCamera = -avgViewZ;
         double minDist = 180.0;
         double maxDist = 680.0;
         double depthFactor = ((maxDist - distanceFromCamera) / (maxDist - minDist)).clamp(0.0, 1.0);
         
-        // Rear edges ~30-40% opacity of front
         edgePaint.color = Colors.cyan.withOpacity(0.12 + (depthFactor * 0.68));
         edgePaint.strokeWidth = 0.9 + (depthFactor * 2.8);
 
