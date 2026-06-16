@@ -58878,7 +58878,7 @@ $S:0}
 A.a0A.prototype={
 $0(){var s=this.a,r=this.b
 s.db=s.db+0.075*r
-s.dx=B.c.cc(s.dx+0.04*r,0.2,2.941592653589793)},
+s.dx=s.dx+0.04*r*0.6},
 $S:0}
 A.a0B.prototype={
 $1(a){return a.KW()>=1},
@@ -58970,8 +58970,10 @@ s.at=s.Q=s.z=null},
 $S:0}
 A.a0i.prototype={
 $0(){var s=this.a,r=this.b
-s.db=s.db-r.a*0.007
-s.dx=s.dx-r.b*0.007},
+s.db=s.db-r.a*0.0075
+r=s.dx=s.dx+-r.b*0.0075
+if(r>6.283185307179586){r-=6.283185307179586
+s.dx=r}s.dx=B.c.cc(r<0?s.dx=r+6.283185307179586:r,0.15,6.133185307179586)},
 $S:0}
 A.a0j.prototype={
 $0(){this.a.y.push(new A.kr(this.b,new A.ec(Date.now(),0,!1)))},
@@ -63261,7 +63263,7 @@ B.FJ=new A.n6(3,"scale")
 B.FK=new A.n6(4,"unknown")
 B.FL=new A.rW(null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.K5=new A.m(!0,B.pe,null,"monospace",null,null,12,B.cF,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
-B.LV=new A.lm("v2.7.5-BETTER-DEPTH",null,B.K5,null,null)
+B.LV=new A.lm("v2.7.6-FREE-ROTATION",null,B.K5,null,null)
 B.FM=new A.rX(10,10,null,null,null,null,B.LV,null)
 B.FN=new A.rZ(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.FO=new A.t0(null,null,null,null,null,null,null,null,null)
