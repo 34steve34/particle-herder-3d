@@ -58898,8 +58898,8 @@ A.a0C.prototype={
 $1(a){return a.KX()>=1},
 $S:379}
 A.a0D.prototype={
-$0(){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2=this
-for(s=a2.a,r=s.y,q=r.length,p=a2.c,o=a2.d,n=s.z,m=a2.b,l=a2.e,k=0;k<r.length;r.length===q||(0,A.t)(r),++k){j=r[k]
+$0(){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2,a3,a4=this
+for(s=a4.a,r=s.y,q=r.length,p=a4.c,o=a4.d,n=s.z,m=a4.b,l=a4.e,k=0;k<r.length;r.length===q||(0,A.t)(r),++k){j=r[k]
 i=Math.sqrt(j.a.ghX())
 if(j.c===B.hC)if(i>25)j.c=B.pv
 else{h=j.a
@@ -58942,15 +58942,17 @@ e.aC(g)
 e.kr(f)
 a0=Math.sqrt(e.ghX())
 e=a.b
-if(a0<150*B.c.cc(B.h.cB(A.d1(0-e.b,Date.now()-e.a).a,1000)/600,0,1)&&a0>5){g=j.a
-a1=new A.X(new Float64Array(3))
-a1.aC(f)
-a1.kr(g)
-a1.j0()
+a1=150*B.c.cc(B.h.cB(A.d1(0-e.b,Date.now()-e.a).a,1000)/600,0,1)
+if(a0<a1&&a0>5){g=j.a
+a2=new A.X(new Float64Array(3))
+a2.aC(f)
+a2.kr(g)
+a2.j0()
+a3=a0/a1
 g=j.b
 f=new A.X(new Float64Array(3))
-f.aC(a1)
-f.aJ((1-a0/150)*140)
+f.aC(a2)
+f.aJ((1-a3*a3)*220)
 e=new A.X(new Float64Array(3))
 e.aC(f)
 e.aJ(m)
@@ -63283,7 +63285,7 @@ B.FP=new A.n6(3,"scale")
 B.FQ=new A.n6(4,"unknown")
 B.FR=new A.rW(null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.Kc=new A.m(!0,B.pe,null,"monospace",null,null,12,B.bR,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
-B.M_=new A.u2("v2.8.2-DYNAMIC-2TOUCH",null,B.Kc,null,null)
+B.M_=new A.u2("v2.8.3-IMPROVED-GRAVITY",null,B.Kc,null,null)
 B.FS=new A.rX(10,10,null,null,null,null,B.M_,null)
 B.FT=new A.rZ(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.FU=new A.t0(null,null,null,null,null,null,null,null,null)
