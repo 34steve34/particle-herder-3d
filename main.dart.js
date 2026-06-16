@@ -59150,9 +59150,9 @@ q=c[0]
 b=g[q]
 p=c[1]
 a=g[p]
-if(b!=null&&a!=null){a0=B.c.cc((-((s.a(a3[q]).a[2]+s.a(a3[p]).a[2])/2)-100)/600,0,1)
-e.r=A.be(B.c.aA(255*(0.15+a0*0.85)),B.az.H()>>>16&255,B.az.H()>>>8&255,B.az.H()&255).gp()
-e.c=1+a0*2.5
+if(b!=null&&a!=null){a0=B.c.cc((680- -((s.a(a3[q]).a[2]+s.a(a3[p]).a[2])/2))/500,0,1)
+e.r=A.be(B.c.aA(255*(0.18+a0*0.78)),B.az.H()>>>16&255,B.az.H()>>>8&255,B.az.H()&255).gp()
+e.c=1.1+a0*2.6
 a1=e.bU()
 r.drawLine.apply(r,[b.a,b.b,a.a,a.b,a1])
 a1.delete()}}a2.Re(a7,a8,a9,a4,a5,a6)},
@@ -63261,7 +63261,7 @@ B.FJ=new A.n6(3,"scale")
 B.FK=new A.n6(4,"unknown")
 B.FL=new A.rW(null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.K5=new A.m(!0,B.pe,null,"monospace",null,null,12,B.cF,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
-B.LV=new A.lm("v2.7.4-SKEW-LINE-GEOMETRY",null,B.K5,null,null)
+B.LV=new A.lm("v2.7.5-BETTER-DEPTH",null,B.K5,null,null)
 B.FM=new A.rX(10,10,null,null,null,null,B.LV,null)
 B.FN=new A.rZ(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null)
 B.FO=new A.t0(null,null,null,null,null,null,null,null,null)
