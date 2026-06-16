@@ -191,7 +191,6 @@ class SurfaceHit {
   SurfaceHit(this.point, this.normal, this.depthToOpposite);
 }
 
-// New class to manage the dual-ray Skew Line math
 class CrosshairData {
   final vm.Vector3 ray1Start;
   final vm.Vector3 ray1End;
@@ -360,10 +359,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
 
+    // Auto-rotate only when not touching the screen
     if (!isUserInteractingWithBox) {
       setState(() {
         cameraTheta += autoRotateSpeedTheta * dt;
-        cameraPhi = (cameraPhi + autoRotateSpeedPhi * dt).clamp(0.2, math.pi - 0.2);
+        cameraPhi += autoRotateSpeedPhi * dt * 0.6;  // gentler auto on vertical
       });
     }
 
@@ -440,6 +440,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     double z = cameraRadius * math.sin(cameraPhi) * math.sin(cameraTheta);
     return vm.Vector3(x, y, z);
   }
+
+  // ... (raycasting methods unchanged - _castScreenRay, _getClosestSurfaceHit, _updateMultiTouchCrosshair, _handleTouchDown remain the same)
 
   Ray _castScreenRay(Offset touchPoint, Size widgetBounds) {
     vm.Vector3 camPos = _computeCameraPosition();
@@ -527,7 +529,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       vm.Vector3 d2 = -hit2.normal;
       vm.Vector3 r2End = p2 + (d2 * hit2.depthToOpposite);
 
-      // --- Skew Line Math ---
       vm.Vector3 w0 = p1 - p2;
       double a = d1.dot(d1);
       double b = d1.dot(d2);
@@ -605,18 +606,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _handleTouchMove(int pointerId, Offset localPosition, Size screenSize) {
-  if (!activeTouches.containsKey(pointerId)) return;
-  Offset previousPosition = activeTouches[pointerId]!;
-  activeTouches[pointerId] = localPosition;
+    if (!activeTouches.containsKey(pointerId)) return;
+    Offset previousPosition = activeTouches[pointerId]!;
+    activeTouches[pointerId] = localPosition;
 
-  if (pointerId == cameraTrackingPointerId) {
-    Offset delta = localPosition - previousPosition;
-    setState(() {
-      cameraTheta -= delta.dx * 0.007;
-      cameraPhi = (cameraPhi - delta.dy * 0.007); 
-    });
+    if (pointerId == cameraTrackingPointerId) {
+      Offset delta = localPosition - previousPosition;
+      setState(() {
+        cameraTheta -= delta.dx * 0.0075;
+
+        // Improved free vertical rotation
+        cameraPhi += -delta.dy * 0.0075;
+
+        // Wrap around for continuous feel (full sphere navigation)
+        if (cameraPhi > math.pi * 2) cameraPhi -= math.pi * 2;
+        if (cameraPhi < 0) cameraPhi += math.pi * 2;
+
+        // Soft pole protection (prevent exact top/bottom singularity)
+        cameraPhi = cameraPhi.clamp(0.15, math.pi * 2 - 0.15);
+      });
+    }
   }
-}
 
   void _handleTouchUp(int pointerId, Size screenSize) {
     if (pointerId == cameraTrackingPointerId) {
@@ -684,7 +694,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             top: 10.0,
             left: 10.0,
             child: Text(
-              'v2.7.5-BETTER-DEPTH',
+              'v2.7.6-FREE-ROTATION',
               style: TextStyle(
                 color: Colors.cyanAccent,
                 fontSize: 12,
@@ -955,10 +965,8 @@ class Scene3DPainter extends CustomPainter {
         double z2 = viewSpaceVertices[edge[1]].z;
         double avgViewZ = (z1 + z2) / 2;
 
-        // === FIXED DEPTH LOGIC ===
-        // Closer edges (smaller |avgViewZ|) = brighter + thicker
-        // Farther (rear) edges = dimmer + thinner
-        double distanceFromCamera = -avgViewZ;           // positive value
+        // FIXED: Proper depth dimming (rear edges fade)
+        double distanceFromCamera = -avgViewZ;
         double minDist = 180.0;
         double maxDist = 680.0;
         double depthFactor = ((maxDist - distanceFromCamera) / (maxDist - minDist)).clamp(0.0, 1.0);
